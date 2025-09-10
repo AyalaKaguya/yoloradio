@@ -707,3 +707,109 @@ def download_and_register_pretrained(
         except Exception:
             pass
     return True, f"已准备预训练模型：{final_file.name}"
+
+
+# ---------- Training helpers (filter datasets/models by task, data.yaml builder) ----------
+
+def _read_yaml_top_level_value(p: Path, key: str) -> Optional[str]:
+    if not p.exists():
+        return None
+    try:
+        for ln in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+            s = ln.strip()
+            if not s or s.startswith("#"):
+                continue
+            if s.startswith(f"{key}:"):
+                val = s.split(":", 1)[1].strip()
+                # strip possible quotes
+                if val.startswith(("'","\"")) and val.endswith(("'","\"")):
+                    val = val[1:-1]
+                return val
+    except Exception:
+        return None
+    return None
+
+
+def dataset_type_code(ds_name: str) -> Optional[str]:
+    p = meta_path_for(ds_name)
+    return _read_yaml_top_level_value(p, "type")
+
+
+def list_datasets_for_task(task_code: str) -> List[str]:
+    if not DATASETS_DIR.exists():
+        return []
+    names: List[str] = []
+    for d in sorted(DATASETS_DIR.iterdir()):
+        if d.is_dir():
+            t = dataset_type_code(d.name)
+            if t == task_code:
+                names.append(d.name)
+    return names
+
+
+def model_task_code_from_sidecar(model_path: Path) -> Optional[str]:
+    side = model_path.with_suffix("")
+    yml = side.parent / f"{side.name}.yml"
+    return _read_yaml_top_level_value(yml, "task")
+
+
+MODEL_EXTS = {".pt", ".onnx", ".engine", ".xml", ".bin"}
+
+
+def list_models_for_task(task_code: str) -> list[tuple[str, str]]:
+    """Return list of (label, path) filtered by model task code across pretrained/trained dirs."""
+    results: list[tuple[str, str]] = []
+    for is_pre, base in ((True, MODELS_PRETRAINED_DIR), (False, MODELS_TRAINED_DIR)):
+        if not base.exists():
+            continue
+        for f in sorted(base.iterdir()):
+            if f.is_file() and f.suffix.lower() in MODEL_EXTS:
+                t = model_task_code_from_sidecar(f)
+                if t == task_code:
+                    label = ("[预训练] " if is_pre else "[训练] ") + f.name
+                    results.append((label, str(f)))
+    return results
+
+
+def read_class_names(ds_dir: Path) -> list[str]:
+    p = ds_dir / "classes.txt"
+    if not p.exists():
+        return []
+    try:
+        lines = [ln.strip() for ln in p.read_text(encoding="utf-8", errors="ignore").splitlines()]
+        return [ln for ln in lines if ln]
+    except Exception:
+        return []
+
+
+def build_ultra_data_yaml(ds_name: str) -> Path:
+    """Create a minimal ultralytics data.yaml beside dataset for training and return its path."""
+    ds_dir = DATASETS_DIR / ds_name
+    structure, splits = detect_structure(ds_dir)
+    # Build paths
+    def rel(p: Path) -> str:
+        # Paths in ultralytics yaml can be absolute or combined with 'path'
+        return str(p.relative_to(ds_dir)) if p.exists() else str(p)
+    img_paths = {}
+    for s, (img_dir, _lbl_dir) in splits.items():
+        img_paths[s] = rel(img_dir)
+    # default val/test to train if missing
+    if not (ds_dir / img_paths.get("val", "")).exists():
+        img_paths["val"] = img_paths.get("train", "")
+    if not (ds_dir / img_paths.get("test", "")).exists():
+        img_paths["test"] = img_paths.get("val", img_paths.get("train", ""))
+    names = read_class_names(ds_dir)
+    lines: list[str] = []
+    lines.append(f"path: {str(ds_dir).replace('\\','/')}")
+    lines.append(f"train: {img_paths.get('train','')}")
+    lines.append(f"val: {img_paths.get('val','')}")
+    if img_paths.get("test"):
+        lines.append(f"test: {img_paths.get('test')}")
+    if names:
+        lines.append("names:")
+        for i, n in enumerate(names):
+            # list form
+            lines.append(f"  - {n}")
+    out = ds_dir / f"{ds_name}.ultra.yaml"
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return out
