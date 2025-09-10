@@ -1,15 +1,64 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+*.so
+*.egg
+*.egg-info/
 build/
 dist/
+.eggs/
 wheels/
-*.egg-info
 
 # Virtual environments
-.venv
+.venv/
+.env
+env/
+venv/
+ENV/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Documentation
+docs/_build/
+site/
 
 # Project-specific ignores
 Models/
 Datasets/
 runs/
+.gradio/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+*.orig
+
+# OS generated files
+.DS_Store?
+ehthumbs.db
+Icon?

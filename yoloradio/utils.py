@@ -1,17 +1,28 @@
+"""YoloRadio 工具函数模块
+
+提供文件操作、数据集处理、模型管理等核心功能。
+"""
+
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import tarfile
 import zipfile
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, cast
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from .paths import DATASETS_DIR, MODELS_DIR, MODELS_PRETRAINED_DIR, MODELS_TRAINED_DIR
 
+# 配置日志
+logger = logging.getLogger(__name__)
 
-def list_dir(dir_path: Path, exts: tuple[str, ...] | None = None, max_items: int = 100) -> List[str]:
+
+def list_dir(
+    dir_path: Path, exts: tuple[str, ...] | None = None, max_items: int = 100
+) -> List[str]:
     items: List[str] = []
     if not dir_path.exists():
         return [f"目录不存在: {dir_path}"]
@@ -30,7 +41,15 @@ def list_dir(dir_path: Path, exts: tuple[str, ...] | None = None, max_items: int
     return items if items else ["（空）"]
 
 
-def extract_pathlike(obj) -> Optional[Path]:
+def extract_pathlike(obj: Any) -> Optional[Path]:
+    """从各种对象中提取路径对象
+
+    Args:
+        obj: 可能包含路径信息的对象
+
+    Returns:
+        提取到的路径对象，失败返回 None
+    """
     try:
         if obj is None:
             return None
@@ -39,24 +58,32 @@ def extract_pathlike(obj) -> Optional[Path]:
         if isinstance(obj, bytes):
             try:
                 return Path(obj.decode("utf-8"))
-            except Exception:
+            except UnicodeDecodeError:
+                logger.warning(f"无法解码字节对象: {obj}")
                 return None
         if isinstance(obj, os.PathLike):
             fs = os.fspath(obj)
             if isinstance(fs, bytes):
                 try:
                     return Path(fs.decode("utf-8"))
-                except Exception:
+                except UnicodeDecodeError:
+                    logger.warning(f"无法解码路径对象: {fs}")
                     return None
             return Path(cast(str, fs))
+
+        # 尝试从对象属性获取路径
         path_attr = getattr(obj, "name", None) or getattr(obj, "path", None)
         if isinstance(path_attr, str):
             return Path(path_attr)
+
+        # 尝试从字典获取路径
         if isinstance(obj, dict):
             p = obj.get("name") or obj.get("path")
             if isinstance(p, str):
                 return Path(p)
-    except Exception:
+
+    except Exception as e:
+        logger.error(f"提取路径失败: {e}")
         return None
     return None
 
@@ -82,9 +109,10 @@ def is_supported_archive(p: Path) -> bool:
     suffs = "".join(p.suffixes).lower()
     if suffs.endswith(".zip"):
         return True
-    if any(suffs.endswith(x) for x in [
-        ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tar", ".tar.xz", ".txz"
-    ]):
+    if any(
+        suffs.endswith(x)
+        for x in [".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tar", ".tar.xz", ".txz"]
+    ):
         return True
     return False
 
@@ -92,7 +120,14 @@ def is_supported_archive(p: Path) -> bool:
 def strip_archive_suffix(name: str) -> str:
     lower = name.lower()
     for suf in [
-        ".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".tbz", ".txz", ".zip", ".tar"
+        ".tar.gz",
+        ".tar.bz2",
+        ".tar.xz",
+        ".tgz",
+        ".tbz",
+        ".txz",
+        ".zip",
+        ".tar",
     ]:
         if lower.endswith(suf):
             return name[: -len(suf)]
@@ -150,7 +185,9 @@ IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 def _count_files(dir_path: Path, exts: set[str]) -> int:
     if not dir_path.exists():
         return 0
-    return sum(1 for p in dir_path.rglob("*") if p.is_file() and p.suffix.lower() in exts)
+    return sum(
+        1 for p in dir_path.rglob("*") if p.is_file() and p.suffix.lower() in exts
+    )
 
 
 def _count_label_txt(dir_path: Path) -> int:
@@ -221,17 +258,19 @@ def dataset_summary_table() -> tuple[list[str], list[list]]:
     rows: list[list] = []
     for ds in list_dataset_dirs():
         s = summarize_dataset(ds)
-        rows.append([
-            s["name"],
-            s["total_images"],
-            s["total_labels"],
-            s["train_images"],
-            s["val_images"],
-            s["test_images"],
-            s["train_labels"],
-            s["val_labels"],
-            s["test_labels"],
-        ])
+        rows.append(
+            [
+                s["name"],
+                s["total_images"],
+                s["total_labels"],
+                s["train_images"],
+                s["val_images"],
+                s["test_images"],
+                s["train_labels"],
+                s["val_labels"],
+                s["test_labels"],
+            ]
+        )
     return headers, rows
 
 
@@ -310,11 +349,18 @@ def _has_any_labels(p: Path) -> bool:
     return _count_label_txt(p) > 0
 
 
-def validate_dataset_by_type(base: Path, ds_type_code: str) -> Tuple[bool, str, str, Dict[str, Tuple[Path, Path]]]:
+def validate_dataset_by_type(
+    base: Path, ds_type_code: str
+) -> Tuple[bool, str, str, Dict[str, Tuple[Path, Path]]]:
     """Minimal validation. Returns (ok, structure, message, splits)."""
     structure, splits = detect_structure(base)
     if structure == "unknown":
-        return False, structure, "无法识别数据集结构（未发现 images/ 或 labels/ 目录）", {}
+        return (
+            False,
+            structure,
+            "无法识别数据集结构（未发现 images/ 或 labels/ 目录）",
+            {},
+        )
 
     # For each split, check presence based on task
     def split_ok(img_dir: Path, lbl_dir: Path) -> bool:
@@ -349,6 +395,7 @@ def build_metadata_yaml(
 ) -> str:
     """Create a simple YAML string without external deps."""
     created_at = datetime.utcnow().isoformat() + "Z"
+
     # relativeize paths to dataset root
     def rel(p: Path) -> str:
         return str(p).replace("\\", "/")
@@ -365,8 +412,12 @@ def build_metadata_yaml(
     lines.append("splits:")
     for s, (img_dir, lbl_dir) in splits.items():
         lines.append(f"  {s}:")
-        lines.append(f"    images: {rel(Path(img_dir.name) if img_dir.is_absolute() else img_dir)}")
-        lines.append(f"    labels: {rel(Path(lbl_dir.name) if lbl_dir.is_absolute() else lbl_dir)}")
+        lines.append(
+            f"    images: {rel(Path(img_dir.name) if img_dir.is_absolute() else img_dir)}"
+        )
+        lines.append(
+            f"    labels: {rel(Path(lbl_dir.name) if lbl_dir.is_absolute() else lbl_dir)}"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -387,6 +438,7 @@ def dataset_detail_table(ds_name: str) -> tuple[list[str], list[list]]:
 
 
 # ---------- Dataset management (metadata, rename, delete) ----------
+
 
 def meta_path_for(name: str) -> Path:
     return DATASETS_DIR / f"{name}.yml"
@@ -439,7 +491,7 @@ def update_meta_description(name: str, new_desc: str) -> tuple[bool, str]:
             i = idx
             break
     block = ["description: |"]
-    for ln in (new_desc.splitlines() or [""]):
+    for ln in new_desc.splitlines() or [""]:
         block.append(f"  {ln}")
     if i is None:
         # insert after type_display or after name
@@ -543,7 +595,12 @@ ULTRALYTICS_PRETRAINED_CHOICES = {
 def list_models(dir_path: Path) -> List[str]:
     if not dir_path.exists():
         return []
-    return [p.name for p in sorted(dir_path.iterdir()) if p.is_file() and p.suffix.lower() in {".pt", ".onnx", ".engine", ".xml", ".bin"}]
+    return [
+        p.name
+        for p in sorted(dir_path.iterdir())
+        if p.is_file()
+        and p.suffix.lower() in {".pt", ".onnx", ".engine", ".xml", ".bin"}
+    ]
 
 
 def refresh_model_lists() -> tuple[list[str], list[str]]:
@@ -554,6 +611,7 @@ def download_pretrained_if_missing(name_or_path: str) -> tuple[bool, str, str]:
     """Download via ultralytics and copy weight file into Models/pretrained."""
     try:
         from ultralytics import YOLO
+
         m = YOLO(name_or_path)
         # YOLO(...).ckpt_path points to downloaded weight file path
         ckpt_path = getattr(m, "ckpt_path", None)
@@ -642,7 +700,7 @@ def build_model_metadata_yaml(
         f"size: {size}",
         "description: |",
     ]
-    for ln in (description.splitlines() or [""]):
+    for ln in description.splitlines() or [""]:
         lines.append(f"  {ln}")
     lines.append(f"created_at: {created_at}")
     return "\n".join(lines) + "\n"
@@ -692,14 +750,23 @@ def download_and_register_pretrained(
         if desired.exists():
             # make unique
             i = 1
-            while (MODELS_PRETRAINED_DIR / f"{custom_name.strip()}_{i}{src.suffix}").exists():
+            while (
+                MODELS_PRETRAINED_DIR / f"{custom_name.strip()}_{i}{src.suffix}"
+            ).exists():
                 i += 1
             desired = MODELS_PRETRAINED_DIR / f"{custom_name.strip()}_{i}{src.suffix}"
         shutil.move(str(src), str(desired))
         final_file = desired
     # write metadata yaml
     stem = final_file.stem
-    meta_yaml = build_model_metadata_yaml(name=stem, task_display=task_display, task_code=task_code, version=version, size=size, description=description or "")
+    meta_yaml = build_model_metadata_yaml(
+        name=stem,
+        task_display=task_display,
+        task_code=task_code,
+        version=version,
+        size=size,
+        description=description or "",
+    )
     model_meta_path(True, stem).write_text(meta_yaml, encoding="utf-8")
     if progress_cb:
         try:
@@ -710,6 +777,7 @@ def download_and_register_pretrained(
 
 
 # ---------- Training helpers (filter datasets/models by task, data.yaml builder) ----------
+
 
 def _read_yaml_top_level_value(p: Path, key: str) -> Optional[str]:
     if not p.exists():
@@ -722,7 +790,7 @@ def _read_yaml_top_level_value(p: Path, key: str) -> Optional[str]:
             if s.startswith(f"{key}:"):
                 val = s.split(":", 1)[1].strip()
                 # strip possible quotes
-                if val.startswith(("'","\"")) and val.endswith(("'","\"")):
+                if val.startswith(("'", '"')) and val.endswith(("'", '"')):
                     val = val[1:-1]
                 return val
     except Exception:
@@ -776,7 +844,10 @@ def read_class_names(ds_dir: Path) -> list[str]:
     if not p.exists():
         return []
     try:
-        lines = [ln.strip() for ln in p.read_text(encoding="utf-8", errors="ignore").splitlines()]
+        lines = [
+            ln.strip()
+            for ln in p.read_text(encoding="utf-8", errors="ignore").splitlines()
+        ]
         return [ln for ln in lines if ln]
     except Exception:
         return []
@@ -786,10 +857,12 @@ def build_ultra_data_yaml(ds_name: str) -> Path:
     """Create a minimal ultralytics data.yaml beside dataset for training and return its path."""
     ds_dir = DATASETS_DIR / ds_name
     structure, splits = detect_structure(ds_dir)
+
     # Build paths
     def rel(p: Path) -> str:
         # Paths in ultralytics yaml can be absolute or combined with 'path'
         return str(p.relative_to(ds_dir)) if p.exists() else str(p)
+
     img_paths = {}
     for s, (img_dir, _lbl_dir) in splits.items():
         img_paths[s] = rel(img_dir)
