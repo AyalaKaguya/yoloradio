@@ -42,7 +42,6 @@ def render() -> None:
             ds_archive = gr.File(label="上传压缩包（仅限单个文件）", file_count="single")
             with gr.Row():
                 extract_ds_btn = gr.Button("上传并解压到 Datasets/", variant="primary")
-                refresh_ds_btn = gr.Button("刷新统计", variant="secondary")
             ds_status = gr.Markdown(visible=True)
 
             gr.Markdown("---")
@@ -189,7 +188,6 @@ def render() -> None:
     )
     # After upload, also refresh summary & selector
     extract_ds_btn.click(fn=_refresh_tables, outputs=[ds_table, ds_select, desc_edit])
-    refresh_ds_btn.click(fn=_refresh_tables, outputs=[ds_table, ds_select, desc_edit])
     refresh_btn2.click(fn=_refresh_tables, outputs=[ds_table, ds_select, desc_edit])
     # 自动在切换选择时加载描述
     ds_select.change(fn=_load_desc, inputs=[ds_select], outputs=[desc_edit])
