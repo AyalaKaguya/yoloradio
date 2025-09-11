@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 import gradio as gr
-from .paths import PROJECT_DIR, DATASETS_DIR, MODELS_DIR, LOGS_DIR, MODELS_PRETRAINED_DIR, MODELS_TRAINED_DIR
+
+from .paths import (
+    DATASETS_DIR,
+    LOGS_DIR,
+    MODELS_DIR,
+    MODELS_PRETRAINED_DIR,
+    MODELS_TRAINED_DIR,
+    PROJECT_DIR,
+)
 
 try:
     import ultralytics as _ultra
+
     ULTRA_VERSION = getattr(_ultra, "__version__", "unknown")
 except Exception:
     ULTRA_VERSION = "not installed"
 
-from .utils import list_dir
+from .utils import get_model_details, list_dir
 
 
 def render() -> None:
@@ -40,12 +49,29 @@ def render() -> None:
 
     def refresh_overview():
         ds_list = list_dir(DATASETS_DIR)
-        pre_list = list_dir(MODELS_PRETRAINED_DIR, exts=(".pt", ".onnx", ".engine", ".xml", ".bin"))
-        tr_list = list_dir(MODELS_TRAINED_DIR, exts=(".pt", ".onnx", ".engine", ".xml", ".bin"))
+        # 获取详细模型信息
+        pre_details = get_model_details(MODELS_PRETRAINED_DIR)
+        tr_details = get_model_details(MODELS_TRAINED_DIR)
         logs_list = list_dir(LOGS_DIR)
+
+        # 格式化模型信息
+        pre_lines = []
+        for name, desc, created in pre_details:
+            pre_lines.append(f"- **{name}** - {desc} _(创建: {created})_")
+        if not pre_lines:
+            pre_lines = ["- (无预训练模型)"]
+
+        tr_lines = []
+        for name, desc, created in tr_details:
+            tr_lines.append(f"- **{name}** - {desc} _(创建: {created})_")
+        if not tr_lines:
+            tr_lines = ["- (无训练模型)"]
+
         models_md = (
-            "预训练模型:\n" + "\n".join([f"- {line}" for line in pre_list]) +
-            "\n\n训练模型:\n" + "\n".join([f"- {line}" for line in tr_list])
+            "预训练模型:\n"
+            + "\n".join(pre_lines)
+            + "\n\n训练模型:\n"
+            + "\n".join(tr_lines)
         )
         return (
             "\n".join([f"- {line}" for line in ds_list]),

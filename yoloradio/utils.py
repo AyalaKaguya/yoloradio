@@ -593,6 +593,7 @@ ULTRALYTICS_PRETRAINED_CHOICES = {
 
 
 def list_models(dir_path: Path) -> List[str]:
+    """获取目录下的模型文件名列表"""
     if not dir_path.exists():
         return []
     return [
@@ -603,8 +604,53 @@ def list_models(dir_path: Path) -> List[str]:
     ]
 
 
+def get_model_details(dir_path: Path) -> List[List[str]]:
+    """获取模型详细信息列表，包含文件名、描述、创建日期"""
+    if not dir_path.exists():
+        return []
+
+    details = []
+    for p in sorted(dir_path.iterdir()):
+        if p.is_file() and p.suffix.lower() in {
+            ".pt",
+            ".onnx",
+            ".engine",
+            ".xml",
+            ".bin",
+        }:
+            name = p.name
+
+            # 读取描述信息
+            meta_file = p.with_suffix("")
+            yml_path = meta_file.parent / f"{meta_file.name}.yml"
+            description = "无描述"
+            if yml_path.exists():
+                desc = _read_yaml_top_level_value(yml_path, "description")
+                if desc:
+                    description = desc
+
+            # 获取创建时间
+            try:
+                created_time = datetime.fromtimestamp(p.stat().st_mtime)
+                created_str = created_time.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                created_str = "未知"
+
+            details.append([name, description, created_str])
+
+    return details
+
+
 def refresh_model_lists() -> tuple[list[str], list[str]]:
+    """获取模型名称列表 (用于下拉框)"""
     return list_models(MODELS_PRETRAINED_DIR), list_models(MODELS_TRAINED_DIR)
+
+
+def refresh_model_details() -> tuple[list[list[str]], list[list[str]]]:
+    """获取模型详细信息列表 (用于表格显示)"""
+    return get_model_details(MODELS_PRETRAINED_DIR), get_model_details(
+        MODELS_TRAINED_DIR
+    )
 
 
 def download_pretrained_if_missing(name_or_path: str) -> tuple[bool, str, str]:
