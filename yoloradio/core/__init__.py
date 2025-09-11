@@ -21,6 +21,16 @@ from .file_utils import (
 # 模型管理模块
 from .model_manager import Model, ModelManager, model_manager
 
+# 任务管理模块
+from .task_manager import (
+    Task,
+    TaskManager,
+    TaskPriority,
+    TaskStatus,
+    TrainingTaskConfig,
+    task_manager,
+)
+
 # 任务类型定义
 from .task_types import (
     DEFAULT_TASK,
@@ -36,6 +46,7 @@ from .task_types import (
 )
 
 # 训练管理模块
+from .train_manager import TrainManager, train_manager
 from .training_manager import (
     TrainingState,
     clear_training_logs,

@@ -487,33 +487,33 @@ def validate_training_environment() -> tuple[bool, str]:
     try:
         import ultralytics
 
-        issues.append("✅ Ultralytics 已安装")
+        issues.append("✅ Ultralytics")
     except ImportError:
-        issues.append("❌ Ultralytics 未安装")
+        issues.append("❌ Ultralytics")
         return False, "\n".join(issues)
 
     # 检查 PyTorch
     try:
         import torch
 
-        issues.append("✅ PyTorch 已安装")
+        issues.append("✅ PyTorch")
         if torch.cuda.is_available():
-            issues.append(f"✅ CUDA 可用 - {torch.cuda.device_count()} 个GPU")
+            issues.append(f"✅ CUDA")
         else:
-            issues.append("⚠️ CUDA 不可用，将使用 CPU")
+            issues.append("⚠️ CUDA")
     except ImportError:
-        issues.append("❌ PyTorch 未安装")
+        issues.append("❌ PyTorch")
         return False, "\n".join(issues)
 
     # 检查目录
     if DATASETS_DIR.exists():
-        issues.append("✅ 数据集目录存在")
+        issues.append("✅ 数据集")
     else:
-        issues.append("❌ 数据集目录不存在")
+        issues.append("❌ 数据集")
 
     if MODELS_TRAINED_DIR.exists():
-        issues.append("✅ 训练模型目录存在")
+        issues.append("✅ 训练模型")
     else:
-        issues.append("⚠️ 训练模型目录不存在，将自动创建")
+        issues.append("⚠️ 训练模型")
 
     return True, "\n".join(issues)

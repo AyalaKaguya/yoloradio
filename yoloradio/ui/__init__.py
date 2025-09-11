@@ -8,6 +8,7 @@ from .pages_export import create_export_tab
 
 # 页面模块导入
 from .pages_home import create_home_tab
+from .pages_logs import create_logs_tab
 from .pages_models import create_models_tab
 from .pages_quick import create_quick_tab
 from .pages_train import create_train_tab
@@ -22,4 +23,5 @@ __all__ = [
     "create_val_tab",
     "create_export_tab",
     "create_quick_tab",
+    "create_logs_tab",
 ]
