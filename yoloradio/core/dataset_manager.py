@@ -145,6 +145,7 @@ def dataset_summary_table() -> tuple[list[str], list[list]]:
     """生成数据集摘要表格"""
     headers = [
         "数据集",
+        "描述",
         "总样本",
         "总标注",
         "train 样本",
@@ -157,9 +158,15 @@ def dataset_summary_table() -> tuple[list[str], list[list]]:
     rows: list[list] = []
     for ds in list_dataset_dirs():
         s = summarize_dataset(ds)
+        # 读取数据集描述，限制长度避免表格过宽
+        description = read_meta_description(ds.name)
+        if len(description) > 50:
+            description = description[:47] + "..."
+
         rows.append(
             [
                 s["name"],
+                description,
                 s["total_images"],
                 s["total_labels"],
                 s["train_images"],
@@ -171,6 +178,43 @@ def dataset_summary_table() -> tuple[list[str], list[list]]:
             ]
         )
     return headers, rows
+
+
+def get_dataset_detail(name: str) -> dict:
+    """获取数据集详细信息，包括完整描述"""
+    ds_path = DATASETS_DIR / name
+    if not ds_path.exists():
+        return {}
+
+    # 基础统计信息
+    summary = summarize_dataset(ds_path)
+
+    # 完整描述
+    description = read_meta_description(name)
+
+    # 数据集类型
+    dataset_type = dataset_type_code(name) or "未知"
+
+    # 元数据文件信息
+    meta_path = meta_path_for(name)
+    meta_exists = meta_path.exists()
+    meta_modified = ""
+    if meta_exists:
+        try:
+            meta_modified = datetime.fromtimestamp(meta_path.stat().st_mtime).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+        except:
+            meta_modified = "未知"
+
+    return {
+        **summary,
+        "description": description,
+        "type": dataset_type,
+        "meta_exists": meta_exists,
+        "meta_modified": meta_modified,
+        "path": str(ds_path),
+    }
 
 
 def detect_structure(base: Path) -> Tuple[str, Dict[str, Tuple[Path, Path]]]:

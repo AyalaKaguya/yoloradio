@@ -11,9 +11,11 @@ from ..core import (
     delete_dataset,
     ensure_unique_dir,
     extract_pathlike,
+    get_dataset_detail,
     is_supported_archive,
     list_datasets_for_task,
     list_dir,
+    read_meta_description,
     rename_dataset,
     safe_extract_tar,
     safe_extract_zip,
@@ -167,6 +169,18 @@ def create_datasets_tab() -> None:
                 headers=sum_headers, value=sum_rows, interactive=False, wrap=True
             )
 
+            # 详情查看区域
+            gr.Markdown("### 数据集详情")
+            with gr.Row():
+                detail_ds_select = gr.Dropdown(
+                    choices=[p.name for p in list_dataset_dirs()],
+                    label="选择数据集查看详情",
+                    value=None,
+                )
+                show_detail_btn = gr.Button("查看详情", variant="secondary")
+
+            detail_info = gr.Markdown("请选择数据集查看详细信息", visible=True)
+
     def upload_and_extract(name: str, desc: str, dtype: str, archive) -> str:
         # 基本校验
         if not name:
@@ -248,6 +262,7 @@ def create_datasets_tab() -> None:
             gr.update(headers=sh, value=sr),
             gr.update(choices=choices, value=selected),
             gr.update(value=desc),
+            gr.update(choices=choices, value=selected),  # 详情选择下拉框
         )
 
     def _load_desc(name: str):
@@ -304,14 +319,60 @@ def create_datasets_tab() -> None:
             gr.update(choices=choices, value=(choices[0] if choices else None)),
         )
 
+    def _show_dataset_detail(name: str):
+        """显示数据集详细信息"""
+        if not name:
+            return "请选择数据集"
+
+        detail = get_dataset_detail(name)
+        if not detail:
+            return f"无法获取数据集 '{name}' 的详细信息"
+
+        # 格式化详细信息
+        info_lines = [
+            f"# 数据集详情: {detail['name']}",
+            "",
+            f"**路径**: `{detail['path']}`",
+            f"**类型**: {detail['type']}",
+            "",
+            "## 描述",
+            detail["description"] if detail["description"] else "*无描述*",
+            "",
+            "## 统计信息",
+            f"- **总样本数**: {detail['total_images']}",
+            f"- **总标注数**: {detail['total_labels']}",
+            "",
+            "### 按集合分布",
+            f"- **Train**: {detail['train_images']} 样本, {detail['train_labels']} 标注",
+            f"- **Val**: {detail['val_images']} 样本, {detail['val_labels']} 标注",
+            f"- **Test**: {detail['test_images']} 样本, {detail['test_labels']} 标注",
+            "",
+            "## 元数据信息",
+            f"- **元数据文件**: {'存在' if detail['meta_exists'] else '不存在'}",
+        ]
+
+        if detail["meta_modified"]:
+            info_lines.append(f"- **最后修改**: {detail['meta_modified']}")
+
+        return "\n".join(info_lines)
+
+    def _refresh_detail_choices():
+        """刷新详情选择下拉框"""
+        choices = [p.name for p in list_dataset_dirs()]
+        return gr.update(choices=choices, value=choices[0] if choices else None)
+
     extract_ds_btn.click(
         fn=upload_and_extract,
         inputs=[name_in, desc_in, type_in, ds_archive],
         outputs=[ds_status],
     )
     # After upload, also refresh summary & selector
-    extract_ds_btn.click(fn=_refresh_tables, outputs=[ds_table, ds_select, desc_edit])
-    refresh_btn2.click(fn=_refresh_tables, outputs=[ds_table, ds_select, desc_edit])
+    extract_ds_btn.click(
+        fn=_refresh_tables, outputs=[ds_table, ds_select, desc_edit, detail_ds_select]
+    )
+    refresh_btn2.click(
+        fn=_refresh_tables, outputs=[ds_table, ds_select, desc_edit, detail_ds_select]
+    )
     # 自动在切换选择时加载描述
     ds_select.change(fn=_load_desc, inputs=[ds_select], outputs=[desc_edit])
     save_btn.click(
@@ -321,6 +382,14 @@ def create_datasets_tab() -> None:
     )
     del_btn.click(
         fn=_delete, inputs=[ds_select], outputs=[op_status, ds_table, ds_select]
+    )
+
+    # 详情查看事件绑定
+    show_detail_btn.click(
+        fn=_show_dataset_detail, inputs=[detail_ds_select], outputs=[detail_info]
+    )
+    detail_ds_select.change(
+        fn=_show_dataset_detail, inputs=[detail_ds_select], outputs=[detail_info]
     )
 
 
