@@ -19,9 +19,7 @@ from .utils import (
 
 
 def render() -> None:
-    gr.Markdown(
-        "## 训练配置\n选择任务后，仅展示兼容的数据集与模型；调整超参数后下方会实时生成 TOML 预览。"
-    )
+    gr.Markdown("## 模型训练\n在这里配置训练参数，监控训练状态，查看历史训练日志。")
 
     # 初始可选项（默认按目标检测）
     default_task_display = "目标检测"

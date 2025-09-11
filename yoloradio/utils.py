@@ -9,6 +9,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import tarfile
 import threading
 import time
@@ -1015,6 +1016,18 @@ def start_training(
         if not (DATASETS_DIR / dataset_name).exists():
             return False, f"数据集不存在: {dataset_name}"
 
+        # 智能设备选择
+        if device == "auto":
+            try:
+                import torch
+
+                if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+                    device = "0"  # 使用第一个GPU
+                else:
+                    device = "cpu"  # 回退到CPU
+            except ImportError:
+                device = "cpu"  # 如果torch未安装，使用CPU
+
         # 生成运行ID
         run_id = str(uuid.uuid4())[:8]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1029,9 +1042,11 @@ def start_training(
         runs_dir.mkdir(parents=True, exist_ok=True)
         project_dir = runs_dir / f"{task_code}_{timestamp}_{run_id}"
 
-        # 准备训练参数
+        # 准备训练参数 - 使用虚拟环境中的yolo命令
+        yolo_exe = Path(sys.executable).parent / "yolo.exe"
+
         train_args = [
-            "yolo",
+            str(yolo_exe),
             "train",
             f"data={data_yaml}",
             f"model={model_path}",
