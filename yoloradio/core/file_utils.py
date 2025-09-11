@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# 配置日志
+import logging
 import os
 import shutil
 import tarfile
@@ -10,6 +12,8 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from .paths import DATASETS_DIR
+
+logger = logging.getLogger(__name__)
 
 
 def extract_pathlike(obj: Any) -> Optional[Path]:
@@ -106,12 +110,6 @@ def unwrap_single_root(dest_dir: Path, max_depth: int = 3) -> None:
         except OSError:
             pass
         depth += 1
-
-
-# 配置日志
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 def list_dir(

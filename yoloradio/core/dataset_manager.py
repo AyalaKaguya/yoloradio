@@ -19,14 +19,6 @@ logger = logging.getLogger(__name__)
 # 常量定义
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
-DATASET_TYPE_MAP: Dict[str, str] = {
-    "图像分类": "classify",
-    "目标检测": "detect",
-    "图像分割": "segment",
-    "关键点跟踪": "pose",
-    "旋转检测框识别": "obb",
-}
-
 
 class Dataset:
     """数据集原型类 - 封装数据集的所有属性和行为"""
@@ -327,6 +319,15 @@ class DatasetManager:
         self._refresh_cache()
         return list(self._datasets_cache.values())
 
+    def list_datasets_with_type(self, type: str) -> List[Dataset]:
+        """获取所有数据集列表"""
+        self._refresh_cache()
+        if type:
+            return [
+                ds for ds in self._datasets_cache.values() if ds.dataset_type == type
+            ]
+        return list(self._datasets_cache.values())
+
     def _refresh_cache(self) -> None:
         """刷新数据集缓存"""
         if not DATASETS_DIR.exists():
@@ -601,6 +602,29 @@ def read_class_names(ds_dir: Path) -> list[str]:
         return []
 
 
+def detect_structure(base: Path) -> Tuple[str, Dict[str, Tuple[Path, Path]]]:
+    """检测数据集结构"""
+    # 分割结构
+    split_dirs = {
+        "train": (base / "train" / "images", base / "train" / "labels"),
+        "val": (base / "val" / "images", base / "val" / "labels"),
+        "test": (base / "test" / "images", base / "test" / "labels"),
+    }
+    if any(img.exists() or lbl.exists() for img, lbl in split_dirs.values()):
+        return "split", split_dirs
+
+    # 扁平结构
+    flat_dirs = {
+        "train": (base / "images", base / "labels"),
+        "val": (base / "val_images", base / "val_labels"),
+        "test": (base / "test_images", base / "test_labels"),
+    }
+    if any(img.exists() or lbl.exists() for img, lbl in flat_dirs.values()):
+        return "flat", flat_dirs
+
+    return "unknown", {}
+
+
 def build_ultra_data_yaml(ds_name: str) -> Path:
     """Create a minimal ultralytics data.yaml beside dataset for training and return its path."""
     ds_dir = DATASETS_DIR / ds_name
@@ -652,70 +676,6 @@ def _count_label_txt(dir_path: Path) -> int:
     return sum(1 for p in dir_path.rglob("*.txt") if p.is_file())
 
 
-def _read_yaml_top_level_value(p: Path, key: str) -> Optional[str]:
-    """从YAML文件中读取顶级键值"""
-    if not p.exists():
-        return None
-    try:
-        with p.open("r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-
-        if not isinstance(data, dict):
-            return None
-
-        value = data.get(key)
-        if value is None:
-            return None
-
-        # 转换为字符串
-        return str(value)
-    except Exception as e:
-        logger.warning(f"读取YAML文件失败 {p}: {e}")
-        return None
-
-
-def dataset_type_code(ds_name: str) -> Optional[str]:
-    """获取数据集的任务类型代码"""
-    p = meta_path_for(ds_name)
-    return _read_yaml_top_level_value(p, "type")
-
-
-def list_datasets_for_task(task_code: str) -> List[str]:
-    """列出指定任务类型的数据集"""
-    if not DATASETS_DIR.exists():
-        return []
-    names: List[str] = []
-    for d in sorted(DATASETS_DIR.iterdir()):
-        if d.is_dir():
-            t = dataset_type_code(d.name)
-            if t == task_code:
-                names.append(d.name)
-    return names
-
-
-def detect_structure(base: Path) -> Tuple[str, Dict[str, Tuple[Path, Path]]]:
-    """检测数据集结构"""
-    # 分割结构
-    split_dirs = {
-        "train": (base / "train" / "images", base / "train" / "labels"),
-        "val": (base / "val" / "images", base / "val" / "labels"),
-        "test": (base / "test" / "images", base / "test" / "labels"),
-    }
-    if any(img.exists() or lbl.exists() for img, lbl in split_dirs.values()):
-        return "split", split_dirs
-
-    # 扁平结构
-    flat_dirs = {
-        "train": (base / "images", base / "labels"),
-        "val": (base / "val_images", base / "val_labels"),
-        "test": (base / "test_images", base / "test_labels"),
-    }
-    if any(img.exists() or lbl.exists() for img, lbl in flat_dirs.values()):
-        return "flat", flat_dirs
-
-    return "unknown", {}
-
-
 def _has_any_images(p: Path) -> bool:
     """检查是否包含图像文件"""
     return _count_files(p, IMG_EXTS) > 0
@@ -757,16 +717,7 @@ def validate_dataset_by_type(
     return True, structure, "检测到有效的数据集结构", splits
 
 
-# ---------- 数据集元数据管理 ----------
-
-
-def meta_path_for(name: str) -> Path:
-    """获取数据集元数据文件路径"""
-    return DATASETS_DIR / f"{name}.yml"
-
-
 __all__ = [
-    "DATASET_TYPE_MAP",
     "IMG_EXTS",
     "dataset_manager",
     "Dataset",

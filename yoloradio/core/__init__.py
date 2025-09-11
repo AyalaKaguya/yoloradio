@@ -4,12 +4,7 @@ YoloRadio 核心模块
 """
 
 # 数据集管理模块
-from .dataset_manager import (
-    Dataset,
-    DatasetManager,
-    dataset_manager,
-    list_datasets_for_task,
-)
+from .dataset_manager import Dataset, DatasetManager, dataset_manager
 
 # 文件操作模块
 from .file_utils import (
@@ -24,14 +19,20 @@ from .file_utils import (
 )
 
 # 模型管理模块
-from .model_manager import (
-    delete_model,
-    download_pretrained_if_missing,
-    get_all_models_info,
-    get_model_detail,
-    get_model_details,
-    list_models_for_task,
-    rename_model,
+from .model_manager import Model, ModelManager, model_manager
+
+# 任务类型定义
+from .task_types import (
+    DEFAULT_TASK,
+    DEFAULT_TASK_DISPLAY,
+    TASK_CODE_TO_DISPLAY,
+    TASK_MAP,
+    get_all_task_codes,
+    get_all_task_displays,
+    get_task_code,
+    get_task_display,
+    is_valid_task_code,
+    is_valid_task_display,
 )
 
 # 训练管理模块
@@ -51,6 +52,17 @@ from .training_manager import (
 
 # 导出所有公共API
 __all__ = [
+    # 任务类型
+    "TASK_MAP",
+    "TASK_CODE_TO_DISPLAY",
+    "DEFAULT_TASK",
+    "DEFAULT_TASK_DISPLAY",
+    "get_task_code",
+    "get_task_display",
+    "get_all_task_displays",
+    "get_all_task_codes",
+    "is_valid_task_code",
+    "is_valid_task_display",
     # 文件操作
     "list_dir",
     "safe_extract_zip",
@@ -64,16 +76,10 @@ __all__ = [
     "dataset_manager",
     "Dataset",
     "DatasetManager",
-    # 数据集弃用API
-    "list_datasets_for_task",
     # 模型管理
-    "download_pretrained_if_missing",
-    "list_models_for_task",
-    "get_all_models_info",
-    "get_model_details",
-    "get_model_detail",
-    "rename_model",
-    "delete_model",
+    "Model",
+    "ModelManager",
+    "model_manager",
     # 训练管理
     "TrainingState",
     "training_state",

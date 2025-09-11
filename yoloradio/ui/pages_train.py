@@ -3,12 +3,13 @@ from __future__ import annotations
 import gradio as gr
 
 from ..core import (
+    TASK_MAP,
     clear_training_logs,
+    dataset_manager,
     get_device_info,
     get_training_logs,
     get_training_status,
-    list_datasets_for_task,
-    list_models_for_task,
+    model_manager,
     pause_training,
     resume_training,
     start_training,
@@ -16,24 +17,21 @@ from ..core import (
     validate_training_environment,
 )
 
-# 数据集类型映射
-DATASET_TYPE_MAP = {
-    "图像分类": "classify",
-    "目标检测": "detect",
-    "图像分割": "segment",
-    "关键点跟踪": "pose",
-    "旋转检测框识别": "obb",
-}
-
 
 def create_train_tab() -> None:
     gr.Markdown("## 模型训练\n在这里配置训练参数，监控训练状态，查看历史训练日志。")
 
     # 初始可选项（默认按目标检测）
     default_task_display = "目标检测"
-    default_task_code = DATASET_TYPE_MAP.get(default_task_display, "detect")
-    init_ds = list_datasets_for_task(default_task_code)
-    init_models = list_models_for_task(default_task_code)  # (label, path)
+    default_task_code = TASK_MAP.get(default_task_display, "detect")
+    init_ds = list(
+        map(
+            lambda d: d.name, dataset_manager.list_datasets_with_type(default_task_code)
+        )
+    )
+    init_models = model_manager.list_models_for_task_display(
+        default_task_code
+    )  # (label, path)
     init_model_labels = [m[0] for m in init_models]
 
     with gr.Tabs():
@@ -43,7 +41,7 @@ def create_train_tab() -> None:
                 # 左：任务/数据集/模型
                 with gr.Column(scale=1, min_width=320):
                     task_dd = gr.Dropdown(
-                        choices=list(DATASET_TYPE_MAP.keys()),
+                        choices=list(TASK_MAP.keys()),
                         value=default_task_display,
                         label="任务类型",
                     )
@@ -166,12 +164,12 @@ def create_train_tab() -> None:
             gr.Markdown("此处可以浏览完整的训练日志和生成的图表。")
 
     def _to_task_code(display: str) -> str:
-        return DATASET_TYPE_MAP.get(display, "detect")
+        return TASK_MAP.get(display, "detect")
 
     def _refresh_options(task_display: str):
         code = _to_task_code(task_display)
-        ds = list_datasets_for_task(code)
-        models = list_models_for_task(code)
+        ds = list(map(lambda d: d.name, dataset_manager.list_datasets_with_type(code)))
+        models = model_manager.list_models_for_task_display(code)
         labels = [m[0] for m in models]
         ds_val = ds[0] if ds else None
         mdl_val = labels[0] if labels else None

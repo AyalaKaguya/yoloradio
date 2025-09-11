@@ -6,18 +6,9 @@ from typing import List
 
 import gradio as gr
 
-from ..core import extract_pathlike
+from ..core import TASK_MAP, extract_pathlike
 from ..core.dataset_manager import dataset_manager
 from ..core.paths import DATASETS_DIR
-
-# 数据集类型映射
-DATASET_TYPE_MAP = {
-    "图像分类": "classify",
-    "目标检测": "detect",
-    "图像分割": "segment",
-    "关键点跟踪": "pose",
-    "旋转检测框识别": "obb",
-}
 
 
 def _show_dataset_detail(name: str):
@@ -62,6 +53,8 @@ def create_datasets_tab() -> None:
     """创建数据集管理标签页"""
     gr.Markdown(
         f"""
+        ## 数据集管理
+        
         数据集目录: `{DATASETS_DIR}`  
         推荐上传压缩包（.zip/.tar.gz/.tgz/.tar.bz2 等），服务器将自动解压到 `Datasets/子目录`。
         体积较大的数据集建议直接在文件系统中放入 `Datasets/`，以避免网页上传耗时。
@@ -91,7 +84,7 @@ def create_datasets_tab() -> None:
                 label="数据集描述", placeholder="可填写来源、标注说明等", lines=3
             )
             type_in = gr.Dropdown(
-                choices=list(DATASET_TYPE_MAP.keys()),
+                choices=list(TASK_MAP.keys()),
                 label="数据集类型",
                 value="目标检测",
             )
@@ -160,7 +153,7 @@ def create_datasets_tab() -> None:
         if not p:
             return "请上传一个压缩包文件"
         ok, msg = dataset_manager.create_dataset_from_upload(
-            name, desc, dtype, p, DATASET_TYPE_MAP
+            name, desc, dtype, p, TASK_MAP
         )
         return msg
 

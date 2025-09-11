@@ -4,15 +4,8 @@ from __future__ import annotations
 
 import gradio as gr
 
-from ..core import get_model_details, list_dir
-from ..core.paths import (
-    DATASETS_DIR,
-    LOGS_DIR,
-    MODELS_DIR,
-    MODELS_PRETRAINED_DIR,
-    MODELS_TRAINED_DIR,
-    PROJECT_DIR,
-)
+from ..core import dataset_manager, list_dir, model_manager
+from ..core.paths import DATASETS_DIR, LOGS_DIR, MODELS_DIR, PROJECT_DIR
 
 try:
     import ultralytics as _ultra
@@ -26,7 +19,8 @@ def create_home_tab() -> None:
     """创建首页标签页"""
     gr.Markdown(
         f"""
-        # yoloradio
+        # yoloradio 主页
+        
         - 工作目录: `{PROJECT_DIR}`  
         - 数据集目录: `{DATASETS_DIR}`  
         - 模型目录: `{MODELS_DIR}`  
@@ -46,39 +40,90 @@ def create_home_tab() -> None:
         with gr.Column():
             gr.Markdown("### 模型概览")
             models_md = gr.Markdown(value="加载中…")
-    gr.Markdown("### 日志概览（ultralytics runs/*）")
-    logs_md = gr.Markdown(value="加载中…")
+        with gr.Column():
+            gr.Markdown("### 日志概览（ultralytics runs/*）")
+            logs_md = gr.Markdown(value="加载中…")
 
     def refresh_overview():
         """刷新概览信息"""
-        ds_list = list_dir(DATASETS_DIR)
-        # 获取详细模型信息
-        pre_details = get_model_details(MODELS_PRETRAINED_DIR)
-        tr_details = get_model_details(MODELS_TRAINED_DIR)
-        logs_list = list_dir(LOGS_DIR)
+        # 使用数据集管理器获取数据集信息
+        datasets = dataset_manager.list_datasets()
+        ds_lines = []
+        if datasets:
+            for ds in datasets:
+                stats = ds.get_statistics()
+                total_images = stats.get("total_images", 0)
+                desc = (
+                    ds.description[:30] + "..."
+                    if len(ds.description) > 30
+                    else ds.description
+                )
+                desc = desc or "无描述"
+                ds_lines.append(
+                    f"- **{ds.name}** ({ds.dataset_type_display}) - {total_images}张图片 - {desc}"
+                )
+        else:
+            ds_lines = ["- (无数据集)"]
 
-        # 格式化模型信息
+        # 使用模型管理器获取模型信息
+        pretrained_models = model_manager.list_models(is_pretrained=True)
+        trained_models = model_manager.list_models(is_pretrained=False)
+
+        # 格式化预训练模型信息
         pre_lines = []
-        for name, desc, created in pre_details:
-            pre_lines.append(f"- **{name}** - {desc} _(创建: {created})_")
+        for model in pretrained_models:
+            desc = (
+                model.description[:30] + "..."
+                if len(model.description) > 30
+                else model.description
+            )
+            desc = desc or "无描述"
+            created = (
+                model.created_time.strftime("%m-%d %H:%M")
+                if model.created_time
+                else "未知"
+            )
+            task_display = model.task_display or "未知任务"
+            pre_lines.append(
+                f"- **{model.filename}** ({task_display}) - {desc} _(创建: {created})_"
+            )
         if not pre_lines:
             pre_lines = ["- (无预训练模型)"]
 
+        # 格式化训练模型信息
         tr_lines = []
-        for name, desc, created in tr_details:
-            tr_lines.append(f"- **{name}** - {desc} _(创建: {created})_")
+        for model in trained_models:
+            desc = (
+                model.description[:30] + "..."
+                if len(model.description) > 30
+                else model.description
+            )
+            desc = desc or "无描述"
+            created = (
+                model.created_time.strftime("%m-%d %H:%M")
+                if model.created_time
+                else "未知"
+            )
+            task_display = model.task_display or "未知任务"
+            tr_lines.append(
+                f"- **{model.filename}** ({task_display}) - {desc} _(创建: {created})_"
+            )
         if not tr_lines:
             tr_lines = ["- (无训练模型)"]
 
-        models_md = (
+        # 获取日志信息
+        logs_list = list_dir(LOGS_DIR)
+
+        models_overview = (
             "预训练模型:\n"
             + "\n".join(pre_lines)
             + "\n\n训练模型:\n"
             + "\n".join(tr_lines)
         )
+
         return (
-            "\n".join([f"- {line}" for line in ds_list]),
-            models_md,
+            "\n".join(ds_lines),
+            models_overview,
             "\n".join([f"- {line}" for line in logs_list]),
         )
 
