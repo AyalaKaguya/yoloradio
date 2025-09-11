@@ -68,6 +68,25 @@ class TrainingTaskConfig:
 
 
 @dataclass
+class ValidationTaskConfig:
+    """验证任务配置"""
+
+    task_code: str
+    dataset_name: str
+    model_path: str
+    conf: float = 0.25  # 置信度阈值
+    iou: float = 0.5  # IoU阈值
+    imgsz: int = 640  # 图像尺寸
+    batch: int = 32  # 批大小
+    device: str = "auto"
+    workers: int = 8
+    save_txt: bool = True  # 保存预测结果文本
+    save_conf: bool = True  # 保存置信度
+    save_crop: bool = False  # 保存裁剪图片
+    verbose: bool = True  # 详细输出
+
+
+@dataclass
 class TaskProgress:
     """任务进度信息"""
 
@@ -86,13 +105,21 @@ class TaskProgress:
         return (self.current_epoch / self.total_epochs) * 100
 
 
+class TaskType(Enum):
+    """任务类型枚举"""
+
+    TRAINING = "training"
+    VALIDATION = "validation"
+
+
 @dataclass
 class Task:
     """训练任务"""
 
     id: str
     name: str
-    config: TrainingTaskConfig
+    task_type: TaskType
+    config: TrainingTaskConfig | ValidationTaskConfig
     priority: TaskPriority = TaskPriority.NORMAL
     status: TaskStatus = TaskStatus.PENDING
     created_at: datetime = field(default_factory=datetime.now)
@@ -193,24 +220,64 @@ class TaskManager:
             except Exception as e:
                 logger.error(f"进度回调错误: {e}")
 
+    def create_training_task(
+        self,
+        name: str,
+        config: TrainingTaskConfig,
+        priority: TaskPriority = TaskPriority.NORMAL,
+    ) -> str:
+        """创建训练任务"""
+        task_id = str(uuid.uuid4())[:8]
+        task = Task(
+            id=task_id,
+            name=name,
+            task_type=TaskType.TRAINING,
+            config=config,
+            priority=priority,
+        )
+
+        self.tasks[task_id] = task
+        task.status = TaskStatus.QUEUED
+        self.task_queue.put(task)
+
+        logger.info(f"创建训练任务: {name} (ID: {task_id})")
+        self._notify_status_change(task)
+
+        return task_id
+
+    def create_validation_task(
+        self,
+        name: str,
+        config: ValidationTaskConfig,
+        priority: TaskPriority = TaskPriority.NORMAL,
+    ) -> str:
+        """创建验证任务"""
+        task_id = str(uuid.uuid4())[:8]
+        task = Task(
+            id=task_id,
+            name=name,
+            task_type=TaskType.VALIDATION,
+            config=config,
+            priority=priority,
+        )
+
+        self.tasks[task_id] = task
+        task.status = TaskStatus.QUEUED
+        self.task_queue.put(task)
+
+        logger.info(f"创建验证任务: {name} (ID: {task_id})")
+        self._notify_status_change(task)
+
+        return task_id
+
     def create_task(
         self,
         name: str,
         config: TrainingTaskConfig,
         priority: TaskPriority = TaskPriority.NORMAL,
     ) -> str:
-        """创建新任务"""
-        task_id = str(uuid.uuid4())[:8]
-        task = Task(id=task_id, name=name, config=config, priority=priority)
-
-        self.tasks[task_id] = task
-        task.status = TaskStatus.QUEUED
-        self.task_queue.put(task)
-
-        logger.info(f"创建任务: {name} (ID: {task_id})")
-        self._notify_status_change(task)
-
-        return task_id
+        """创建新任务（向后兼容，默认为训练任务）"""
+        return self.create_training_task(name, config, priority)
 
     def get_task(self, task_id: str) -> Optional[Task]:
         """获取任务"""
@@ -316,14 +383,26 @@ class TaskManager:
         self.current_task = task
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.now()
-        task.progress.total_epochs = task.config.epochs
+
+        # 根据任务类型设置不同的进度参数
+        if task.task_type == TaskType.TRAINING and isinstance(
+            task.config, TrainingTaskConfig
+        ):
+            task.progress.total_epochs = task.config.epochs
+        elif task.task_type == TaskType.VALIDATION:
+            task.progress.total_epochs = 1  # 验证任务通常只需要一轮
 
         logger.info(f"开始执行任务: {task.name} (ID: {task.id})")
         self._notify_status_change(task)
 
         try:
-            # 这里调用实际的训练函数
-            self._run_training(task)
+            # 根据任务类型调用不同的执行函数
+            if task.task_type == TaskType.TRAINING:
+                self._run_training(task)
+            elif task.task_type == TaskType.VALIDATION:
+                self._run_validation(task)
+            else:
+                raise ValueError(f"未支持的任务类型: {task.task_type}")
 
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now()
@@ -341,6 +420,9 @@ class TaskManager:
 
     def _run_training(self, task: Task):
         """运行训练（集成真实的YOLO训练逻辑）"""
+        if not isinstance(task.config, TrainingTaskConfig):
+            raise ValueError("训练任务需要TrainingTaskConfig配置")
+
         config = task.config
 
         try:
@@ -442,6 +524,106 @@ class TaskManager:
             task.logs.append(
                 f"[{datetime.now().strftime('%H:%M:%S')}] ❌ 训练失败: {e}"
             )
+            raise
+
+    def _run_validation(self, task: Task):
+        """运行验证任务"""
+        if not isinstance(task.config, ValidationTaskConfig):
+            raise ValueError("验证任务需要ValidationTaskConfig配置")
+
+        config = task.config
+
+        try:
+            # 导入验证函数和状态
+            from .validation_manager import start_validation, validation_state
+
+            task.logs.append(f"开始验证任务: {task.name}")
+            task.logs.append(f"模型: {config.model_path}")
+            task.logs.append(f"数据集: {config.dataset_name}")
+            task.logs.append(f"置信度阈值: {config.conf}")
+            task.logs.append(f"IoU阈值: {config.iou}")
+
+            # 调用验证函数
+            success, message, results = start_validation(
+                task_code=config.task_code,
+                dataset_name=config.dataset_name,
+                model_path=config.model_path,
+                conf=config.conf,
+                iou=config.iou,
+                imgsz=config.imgsz,
+                batch=config.batch,
+                device=config.device,
+                workers=config.workers,
+                save_txt=config.save_txt,
+                save_conf=config.save_conf,
+                save_crop=config.save_crop,
+                verbose=config.verbose,
+            )
+
+            if not success:
+                raise Exception(message)
+
+            # 等待验证开始
+            timeout = 10  # 10秒超时
+            start_time = time.time()
+            while (
+                not validation_state.is_running and (time.time() - start_time) < timeout
+            ):
+                time.sleep(0.1)
+
+            # 监控验证进程
+            while (
+                validation_state.is_running
+                and self.is_running
+                and task.status == TaskStatus.RUNNING
+            ):
+                # 更新任务进度
+                task.progress.current_epoch = validation_state.current_epoch
+                task.progress.total_epochs = validation_state.total_epochs
+
+                # 获取验证状态的日志
+                if validation_state.log_lines:
+                    # 同步验证状态的日志到任务日志
+                    task.logs = validation_state.log_lines.copy()
+
+                # 通知进度更新
+                self._notify_progress_update(task)
+
+                # 限制日志数量
+                if len(task.logs) > 1000:
+                    task.logs = task.logs[-500:]
+
+                time.sleep(1)
+
+            # 最终同步一次日志
+            if validation_state.log_lines:
+                task.logs = validation_state.log_lines.copy()
+
+            # 检查最终状态
+            if validation_state.completed_successfully:
+                task.logs.append("验证成功完成")
+
+                # 更新准确率信息
+                if validation_state.results and "mAP50" in validation_state.results:
+                    task.progress.accuracy = validation_state.results["mAP50"]
+
+                # 记录验证结果
+                if validation_state.results:
+                    task.logs.append("=== 验证结果 ===")
+                    for key, value in validation_state.results.items():
+                        task.logs.append(f"{key}: {value}")
+            else:
+                error_msg = validation_state.error_message or "验证异常结束"
+                raise Exception(error_msg)
+
+            task.logs.append("验证任务完成")
+            self._notify_progress_update(task)
+
+        except Exception as e:
+            error_msg = f"验证失败: {str(e)}"
+            task.logs.append(error_msg)
+            task.error_message = error_msg
+            logger.error(f"任务 {task.id} 验证失败: {e}")
             raise
 
     def _stop_current_task(self):

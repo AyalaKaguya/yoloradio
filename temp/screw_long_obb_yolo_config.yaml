@@ -1,0 +1,7 @@
+names:
+  0: object
+nc: 1
+path: C:\Users\ayala\Desktop\yoloradio\Datasets\screw_long_obb
+test: C:\Users\ayala\Desktop\yoloradio\Datasets\screw_long_obb\test_images
+train: C:\Users\ayala\Desktop\yoloradio\Datasets\screw_long_obb\images
+val: C:\Users\ayala\Desktop\yoloradio\Datasets\screw_long_obb\val_images

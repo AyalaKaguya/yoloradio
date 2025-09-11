@@ -36,6 +36,11 @@ class Dataset:
         self._metadata_path = DATASETS_DIR / f"{name}.yml"
 
     @property
+    def metadata_path(self) -> Path:
+        """获取元数据文件路径"""
+        return self._metadata_path
+
+    @property
     def exists(self) -> bool:
         """检查数据集是否存在"""
         return self.path.exists() and self.path.is_dir()

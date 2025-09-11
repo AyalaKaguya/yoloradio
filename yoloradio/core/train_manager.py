@@ -12,7 +12,9 @@ from .task_manager import (
     TaskManager,
     TaskPriority,
     TaskStatus,
+    TaskType,
     TrainingTaskConfig,
+    ValidationTaskConfig,
     task_manager,
 )
 from .task_types import TASK_MAP
@@ -263,6 +265,58 @@ class TrainManager:
                     return f"❌ 无法停止当前任务", "状态: 错误"
             else:
                 return "❌ 没有正在运行的任务", "状态: 就绪"
+
+    def start_validation(
+        self,
+        dataset: str,
+        model_label: str,
+        conf: float,
+        iou: float,
+        imgsz: int,
+        batch: int,
+        device: str,
+        workers: int,
+        model_map: Dict[str, str],
+        priority: TaskPriority = TaskPriority.NORMAL,
+    ) -> Tuple[str, str]:
+        """创建并添加验证任务到队列"""
+        if not dataset or not model_label:
+            return "❌ 请选择数据集和模型", "状态: 就绪"
+
+        if model_label not in model_map:
+            return "❌ 模型路径无效", "状态: 就绪"
+
+        model_path = model_map[model_label]
+
+        # 生成任务代码
+        import time
+
+        task_code = f"val_{int(time.time())}"
+        task_name = f"验证_{dataset}_{model_label}"
+
+        # 创建验证配置
+        config = ValidationTaskConfig(
+            task_code=task_code,
+            dataset_name=dataset,
+            model_path=model_path,
+            conf=conf,
+            iou=iou,
+            imgsz=imgsz,
+            batch=batch,
+            device=device,
+            workers=workers,
+            save_txt=True,
+            save_conf=True,
+            save_crop=False,
+            verbose=True,
+        )
+
+        # 添加验证任务到队列
+        task_id = self.task_manager.create_validation_task(
+            name=task_name, config=config, priority=priority
+        )
+
+        return f"✅ 验证任务已添加到队列 (ID: {task_id})", "状态: 已排队"
 
     def promote_task(self, task_id: str) -> bool:
         """提升任务优先级"""
