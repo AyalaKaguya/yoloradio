@@ -50,6 +50,7 @@ Models/
 Datasets/
 runs/
 .gradio/
+*.pt
 
 # Temporary files
 *.tmp

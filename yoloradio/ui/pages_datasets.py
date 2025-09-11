@@ -5,27 +5,9 @@ from __future__ import annotations
 from typing import List
 
 import gradio as gr
-import yaml
 
-from ..core import (
-    dataset_summary_table,
-    delete_dataset,
-    ensure_unique_dir,
-    extract_pathlike,
-    get_dataset_detail,
-    is_supported_archive,
-    list_datasets_for_task,
-    list_dir,
-    read_meta_description,
-    rename_dataset,
-    safe_extract_tar,
-    safe_extract_zip,
-    strip_archive_suffix,
-    summarize_dataset,
-    unwrap_single_root,
-    update_meta_description,
-    validate_dataset_by_type,
-)
+from ..core import extract_pathlike
+from ..core.dataset_manager import dataset_manager
 from ..core.paths import DATASETS_DIR
 
 # 数据集类型映射
@@ -38,31 +20,42 @@ DATASET_TYPE_MAP = {
 }
 
 
-def list_dataset_dirs():
-    """列出数据集目录"""
-    if not DATASETS_DIR.exists():
-        return []
-    return [d for d in DATASETS_DIR.iterdir() if d.is_dir()]
+def _show_dataset_detail(name: str):
+    """显示数据集详细信息"""
+    if not name:
+        return "请选择数据集"
 
+    detail = dataset_manager.get_dataset_detail(name)
+    if not detail:
+        return f"无法获取数据集 '{name}' 的详细信息"
 
-def build_metadata_yaml(
-    name: str,
-    type_code: str,
-    type_display: str,
-    description: str,
-    structure: str,
-    splits: dict,
-):
-    """构建元数据YAML"""
-    data = {
-        "name": name,
-        "type": type_code,
-        "type_display": type_display,
-        "description": description,
-        "structure": structure,
-        "splits": splits,
-    }
-    return yaml.safe_dump(data, allow_unicode=True, default_flow_style=False)
+    # 格式化详细信息
+    info_lines = [
+        f"# 数据集详情: {detail['name']}",
+        "",
+        f"**路径**: `{detail['path']}`\n",
+        f"**类型**: {detail['type']}",
+        "",
+        "## 描述",
+        detail["description"] if detail["description"] else "*无描述*",
+        "",
+        "## 统计信息",
+        f"- **总样本数**: {detail['total_images']}",
+        f"- **总标注数**: {detail['total_labels']}",
+        "",
+        "### 按集合分布",
+        f"- **Train**: {detail['train_images']} 样本, {detail['train_labels']} 标注",
+        f"- **Val**: {detail['val_images']} 样本, {detail['val_labels']} 标注",
+        f"- **Test**: {detail['test_images']} 样本, {detail['test_labels']} 标注",
+        "",
+        "## 元数据信息",
+        f"- **元数据文件**: {'存在' if detail['meta_exists'] else '不存在'}",
+    ]
+
+    if detail["meta_modified"]:
+        info_lines.append(f"- **最后修改**: {detail['meta_modified']}")
+
+    return "\n".join(info_lines)
 
 
 def create_datasets_tab() -> None:
@@ -74,8 +67,21 @@ def create_datasets_tab() -> None:
         体积较大的数据集建议直接在文件系统中放入 `Datasets/`，以避免网页上传耗时。
         """
     )
+
+    # 初始化数据集选项和详情
+    dataset_options = dataset_manager.get_dataset_names()
+    first_dataset = dataset_options[0] if dataset_options else None
+
+    # 获取初始汇总表格数据
+    sum_headers, sum_rows = dataset_manager.get_datasets_summary()
+
+    # 获取初始详情信息
+    initial_detail = ""
+    if first_dataset:
+        initial_detail = _show_dataset_detail(first_dataset)
+
     with gr.Row():
-        # 左侧窄栏：信息与上传 + 管理面板
+        # 左侧：上传 + 管理面板
         with gr.Column(scale=1, min_width=360):
             gr.Markdown("### 信息与上传")
             name_in = gr.Textbox(
@@ -98,252 +104,176 @@ def create_datasets_tab() -> None:
 
             gr.Markdown("---")
             gr.Markdown("### 管理所选数据集")
-            _choices = [p.name for p in list_dataset_dirs()]
             ds_select = gr.Dropdown(
-                choices=_choices,
-                value=(_choices[0] if _choices else None),
+                choices=dataset_options,
+                value=first_dataset,
                 label="选择数据集",
                 allow_custom_value=True,
             )
             new_name_in = gr.Textbox(label="新名称", placeholder="留空则不改名")
             # 初始描述：根据当前选择自动加载
-            _init_desc = read_meta_description(_choices[0]) if _choices else ""
+            dataset = (
+                dataset_manager.get_dataset(first_dataset) if first_dataset else None
+            )
+            _init_desc = dataset.description if dataset else ""
             desc_edit = gr.Textbox(label="描述", lines=4, value=_init_desc)
             with gr.Row():
                 save_btn = gr.Button("保存修改", variant="primary")
                 del_btn = gr.Button("删除所选", variant="stop")
             op_status = gr.Markdown(visible=True)
 
-        # 右侧宽栏：显示汇总列表
+        # 右侧：数据集列表和详细信息展示
         with gr.Column(scale=2, min_width=760):
-            # 汇总
-            with gr.Row():
-                gr.Markdown("### 数据集列表")
-                refresh_btn2 = gr.Button("刷新")
-            sum_headers, sum_rows = dataset_summary_table()
-            ds_table = gr.Dataframe(
-                headers=sum_headers, value=sum_rows, interactive=False, wrap=True
-            )
+            refresh_btn = gr.Button("刷新列表", variant="secondary")
 
-            # 详情查看区域
-            gr.Markdown("### 数据集详情")
             with gr.Row():
+                # 数据集列表列
+                with gr.Column(scale=1):
+                    gr.Markdown("### 数据集列表")
+                    ds_table = gr.Dataframe(
+                        headers=sum_headers,
+                        value=sum_rows,
+                        interactive=False,
+                        wrap=True,
+                    )
+
+            # 详细信息展示列
+            with gr.Column(scale=1):
+                gr.Markdown("### 数据集详细信息")
                 detail_ds_select = gr.Dropdown(
-                    choices=[p.name for p in list_dataset_dirs()],
-                    label="选择数据集查看详情",
-                    value=None,
+                    choices=dataset_options,
+                    value=first_dataset,
+                    label="选择要查看的数据集",
+                    interactive=True,
                 )
-                show_detail_btn = gr.Button("查看详情", variant="secondary")
+                detail_info = gr.Markdown(
+                    value=(
+                        initial_detail if initial_detail else "请选择数据集查看详细信息"
+                    ),
+                    visible=True,
+                )
 
-            detail_info = gr.Markdown("请选择数据集查看详细信息", visible=True)
-
-    def upload_and_extract(name: str, desc: str, dtype: str, archive) -> str:
-        # 基本校验
-        if not name:
-            return "请填写数据集名称"
+    # 事件处理函数
+    def handle_upload(name: str, desc: str, dtype: str, archive) -> str:
+        """处理数据集上传"""
         p = extract_pathlike(archive)
-        if not p or not p.exists():
+        if not p:
             return "请上传一个压缩包文件"
-        if not is_supported_archive(p):
-            return f"不支持的压缩包类型: {p.name}"
-
-        # 目标目录
-        folder_name = strip_archive_suffix(name.strip())
-        dest_dir = ensure_unique_dir(DATASETS_DIR / folder_name)
-        dest_dir.mkdir(parents=True, exist_ok=True)
-
-        # 解压
-        try:
-            if p.suffix.lower() == ".zip":
-                import zipfile
-
-                with zipfile.ZipFile(p, "r") as zf:
-                    safe_extract_zip(zf, dest_dir)
-            else:
-                import tarfile
-
-                mode = (
-                    "r:gz"
-                    if "gz" in "".join(p.suffixes).lower()
-                    or p.name.lower().endswith(".tgz")
-                    else None
-                )
-                if p.name.lower().endswith((".bz2", ".tbz")):
-                    mode = "r:bz2"
-                if p.name.lower().endswith((".xz", ".txz")):
-                    mode = "r:xz"
-                with tarfile.open(p, mode or "r:") as tf:
-                    safe_extract_tar(tf, dest_dir)
-        except Exception as e:
-            return f"解压失败: {p.name} -> {e}"
-
-        # 展平单根目录
-        unwrap_single_root(dest_dir)
-
-        # 结构与类型校验
-        type_code = DATASET_TYPE_MAP.get(dtype, "detect")
-        ok, structure, msg, splits = validate_dataset_by_type(dest_dir, type_code)
-        if not ok:
-            # 无法判定为有效数据集，清理空目录
-            try:
-                if not any(dest_dir.rglob("*")):
-                    dest_dir.rmdir()
-            except Exception:
-                pass
-            return f"数据集校验失败：{msg}"
-
-        # 写入同名 yml 元数据
-        meta_yaml = build_metadata_yaml(
-            name=folder_name,
-            type_code=type_code,
-            type_display=dtype,
-            description=desc or "",
-            structure=structure,
-            splits=splits,
+        ok, msg = dataset_manager.create_dataset_from_upload(
+            name, desc, dtype, p, DATASET_TYPE_MAP
         )
-        meta_path = DATASETS_DIR / f"{folder_name}.yml"
-        try:
-            meta_path.write_text(meta_yaml, encoding="utf-8")
-        except Exception as e:
-            return f"已导入但写元数据失败：{e}"
+        return msg
 
-        return f"已导入数据集：{dest_dir.name}（类型：{dtype}，结构：{structure}）\n元数据：{meta_path.name}"
-
-    def _refresh_tables():
-        sh, sr = dataset_summary_table()
-        choices = [p.name for p in list_dataset_dirs()]
-        selected = choices[0] if choices else None
-        desc = read_meta_description(selected) if selected else ""
-        return (
-            gr.update(headers=sh, value=sr),
-            gr.update(choices=choices, value=selected),
-            gr.update(value=desc),
-            gr.update(choices=choices, value=selected),  # 详情选择下拉框
-        )
-
-    def _load_desc(name: str):
+    def handle_description_load(name: str):
+        """加载数据集描述"""
         if not name:
             return gr.update(value="")
-        return gr.update(value=read_meta_description(name))
+        dataset = dataset_manager.get_dataset(name)
+        desc = dataset.description if dataset else ""
+        return gr.update(value=desc)
 
-    def _save_changes(selected: str, new_name: str, new_desc: str):
+    def handle_save_changes(selected: str, new_name: str, new_desc: str):
+        """保存数据集更改"""
         msgs: list[str] = []
-        # rename if needed
+        final_selected = selected
+
+        # 重命名如果需要
         if selected and new_name and new_name != selected:
-            ok, final_name, m = rename_dataset(selected, new_name)
+            ok, final_name, m = dataset_manager.rename_dataset(selected, new_name)
             msgs.append(m)
-            if not ok:
-                # refresh table & select for consistency
-                sh, sr = dataset_summary_table()
-                choices = [p.name for p in list_dataset_dirs()]
-                return (
-                    "\n".join(msgs),
-                    gr.update(headers=sh, value=sr),
-                    gr.update(choices=choices, value=(choices[0] if choices else None)),
-                )
-            selected = final_name
-        # update description
-        if selected:
-            ok, m = update_meta_description(selected, new_desc or "")
+            if ok:
+                final_selected = final_name
+
+        # 更新描述
+        if final_selected:
+            ok, m = dataset_manager.update_dataset_description(
+                final_selected, new_desc or ""
+            )
             msgs.append(m)
-        # refresh
-        sh, sr = dataset_summary_table()
-        choices = [p.name for p in list_dataset_dirs()]
+
+        # 刷新数据
+        headers, rows = dataset_manager.get_datasets_summary()
+        names = dataset_manager.get_dataset_names()
+
         return (
             "\n".join(msgs) or "已保存",
-            gr.update(headers=sh, value=sr),
+            gr.update(headers=headers, value=rows),
             gr.update(
-                choices=choices,
+                choices=names,
                 value=(
-                    selected
-                    if selected in choices
-                    else (choices[0] if choices else None)
+                    final_selected
+                    if final_selected in names
+                    else (names[0] if names else None)
                 ),
             ),
         )
 
-    def _delete(selected: str):
+    def handle_delete(selected: str):
+        """删除数据集"""
         if not selected:
             return "请选择要删除的数据集", gr.update(), gr.update()
-        ok, m = delete_dataset(selected)
-        # refresh
-        sh, sr = dataset_summary_table()
-        choices = [p.name for p in list_dataset_dirs()]
+
+        ok, m = dataset_manager.delete_dataset(selected)
+        headers, rows = dataset_manager.get_datasets_summary()
+        names = dataset_manager.get_dataset_names()
+
         return (
             m,
-            gr.update(headers=sh, value=sr),
-            gr.update(choices=choices, value=(choices[0] if choices else None)),
+            gr.update(headers=headers, value=rows),
+            gr.update(choices=names, value=(names[0] if names else None)),
         )
 
-    def _show_dataset_detail(name: str):
-        """显示数据集详细信息"""
-        if not name:
-            return "请选择数据集"
+    def handle_refresh():
+        """刷新所有界面元素"""
+        dataset_options = dataset_manager.get_dataset_names()
+        first_dataset = dataset_options[0] if dataset_options else None
+        sum_headers, sum_rows = dataset_manager.get_datasets_summary()
+        dataset = dataset_manager.get_dataset(first_dataset) if first_dataset else None
+        init_desc = dataset.description if dataset else ""
+        initial_detail = (
+            _show_dataset_detail(first_dataset)
+            if first_dataset
+            else "请选择数据集查看详细信息"
+        )
 
-        detail = get_dataset_detail(name)
-        if not detail:
-            return f"无法获取数据集 '{name}' 的详细信息"
+        return (
+            gr.update(headers=sum_headers, value=sum_rows),  # ds_table
+            gr.update(choices=dataset_options, value=first_dataset),  # ds_select
+            gr.update(value=init_desc),  # desc_edit
+            gr.update(choices=dataset_options, value=first_dataset),  # detail_ds_select
+            initial_detail,  # detail_info
+        )
 
-        # 格式化详细信息
-        info_lines = [
-            f"# 数据集详情: {detail['name']}",
-            "",
-            f"**路径**: `{detail['path']}`",
-            f"**类型**: {detail['type']}",
-            "",
-            "## 描述",
-            detail["description"] if detail["description"] else "*无描述*",
-            "",
-            "## 统计信息",
-            f"- **总样本数**: {detail['total_images']}",
-            f"- **总标注数**: {detail['total_labels']}",
-            "",
-            "### 按集合分布",
-            f"- **Train**: {detail['train_images']} 样本, {detail['train_labels']} 标注",
-            f"- **Val**: {detail['val_images']} 样本, {detail['val_labels']} 标注",
-            f"- **Test**: {detail['test_images']} 样本, {detail['test_labels']} 标注",
-            "",
-            "## 元数据信息",
-            f"- **元数据文件**: {'存在' if detail['meta_exists'] else '不存在'}",
-        ]
-
-        if detail["meta_modified"]:
-            info_lines.append(f"- **最后修改**: {detail['meta_modified']}")
-
-        return "\n".join(info_lines)
-
-    def _refresh_detail_choices():
-        """刷新详情选择下拉框"""
-        choices = [p.name for p in list_dataset_dirs()]
-        return gr.update(choices=choices, value=choices[0] if choices else None)
-
+    # 事件绑定
     extract_ds_btn.click(
-        fn=upload_and_extract,
+        fn=handle_upload,
         inputs=[name_in, desc_in, type_in, ds_archive],
         outputs=[ds_status],
     )
-    # After upload, also refresh summary & selector
+    # 上传后刷新所有界面
     extract_ds_btn.click(
-        fn=_refresh_tables, outputs=[ds_table, ds_select, desc_edit, detail_ds_select]
+        fn=handle_refresh,
+        outputs=[ds_table, ds_select, desc_edit, detail_ds_select, detail_info],
     )
-    refresh_btn2.click(
-        fn=_refresh_tables, outputs=[ds_table, ds_select, desc_edit, detail_ds_select]
+    # 刷新按钮
+    refresh_btn.click(
+        fn=handle_refresh,
+        outputs=[ds_table, ds_select, desc_edit, detail_ds_select, detail_info],
     )
     # 自动在切换选择时加载描述
-    ds_select.change(fn=_load_desc, inputs=[ds_select], outputs=[desc_edit])
+    ds_select.change(
+        fn=handle_description_load, inputs=[ds_select], outputs=[desc_edit]
+    )
     save_btn.click(
-        fn=_save_changes,
+        fn=handle_save_changes,
         inputs=[ds_select, new_name_in, desc_edit],
         outputs=[op_status, ds_table, ds_select],
     )
     del_btn.click(
-        fn=_delete, inputs=[ds_select], outputs=[op_status, ds_table, ds_select]
+        fn=handle_delete, inputs=[ds_select], outputs=[op_status, ds_table, ds_select]
     )
 
     # 详情查看事件绑定
-    show_detail_btn.click(
-        fn=_show_dataset_detail, inputs=[detail_ds_select], outputs=[detail_info]
-    )
     detail_ds_select.change(
         fn=_show_dataset_detail, inputs=[detail_ds_select], outputs=[detail_info]
     )

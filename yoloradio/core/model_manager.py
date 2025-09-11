@@ -24,16 +24,10 @@ def _read_yaml_top_level_value(p: Path, key: str) -> Optional[str]:
     if not p.exists():
         return None
     try:
-        for ln in p.read_text(encoding="utf-8", errors="ignore").splitlines():
-            s = ln.strip()
-            if not s or s.startswith("#"):
-                continue
-            if s.startswith(f"{key}:"):
-                val = s.split(":", 1)[1].strip()
-                # strip possible quotes
-                if val.startswith(("'", '"')) and val.endswith(("'", '"')):
-                    val = val[1:-1]
-                return val
+        with open(p, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if isinstance(data, dict) and key in data:
+            return str(data[key])
     except Exception:
         return None
     return None
@@ -134,6 +128,205 @@ def get_model_details(dir_path: Path) -> List[List[str]]:
             details.append([name, description, created_str])
 
     return details
+
+
+def get_all_models_info() -> dict:
+    """获取所有模型的完整信息"""
+    result = {"pretrained": [], "trained": []}
+
+    # 处理预训练模型
+    if MODELS_PRETRAINED_DIR.exists():
+        for p in sorted(MODELS_PRETRAINED_DIR.iterdir()):
+            if p.is_file() and p.suffix.lower() in {
+                ".pt",
+                ".onnx",
+                ".engine",
+                ".xml",
+                ".bin",
+            }:
+                model_info = _extract_model_info(p, is_pretrained=True)
+                if model_info:
+                    result["pretrained"].append(model_info)
+
+    # 处理训练模型
+    if MODELS_TRAINED_DIR.exists():
+        for p in sorted(MODELS_TRAINED_DIR.iterdir()):
+            if p.is_file() and p.suffix.lower() in {
+                ".pt",
+                ".onnx",
+                ".engine",
+                ".xml",
+                ".bin",
+            }:
+                model_info = _extract_model_info(p, is_pretrained=False)
+                if model_info:
+                    result["trained"].append(model_info)
+
+    return result
+
+
+def _extract_model_info(model_path: Path, is_pretrained: bool) -> Optional[dict]:
+    """提取单个模型的完整信息"""
+    try:
+        # 基本文件信息
+        filename = model_path.name
+        stem = model_path.stem
+
+        # 文件统计信息
+        stat = model_path.stat()
+        file_size = stat.st_size / (1024 * 1024)  # MB
+        created_time = datetime.fromtimestamp(stat.st_mtime)
+
+        # 读取元数据
+        yml_path = model_path.with_suffix(".yml")
+        metadata = {}
+        description = "无描述"
+        if yml_path.exists():
+            try:
+                with open(yml_path, "r", encoding="utf-8") as f:
+                    metadata = yaml.safe_load(f) or {}
+                # 获取描述，如果太长则在表格中显示为 "|"
+                desc = metadata.get("description", "")
+                if desc:
+                    description = "|" if len(desc) > 50 else desc
+            except Exception as e:
+                logger.warning(f"读取模型元数据失败 {yml_path}: {e}")
+
+        return {
+            "filename": filename,
+            "stem": stem,
+            "file_size_mb": file_size,
+            "created_time": created_time,
+            "created_str": created_time.strftime("%Y-%m-%d %H:%M"),
+            "description": description,
+            "full_description": metadata.get("description", ""),
+            "metadata": metadata,
+            "is_pretrained": is_pretrained,
+            "model_path": model_path,
+            "yml_path": yml_path,
+        }
+    except Exception as e:
+        logger.error(f"提取模型信息失败 {model_path}: {e}")
+        return None
+
+
+def get_model_detail(model_name: str, is_pretrained: bool = True) -> str:
+    """获取模型的详细信息"""
+    if not model_name:
+        return ""
+
+    # 选择目录
+    base_dir = MODELS_PRETRAINED_DIR if is_pretrained else MODELS_TRAINED_DIR
+
+    # 查找模型文件
+    model_file = None
+    for suffix in [".pt", ".onnx", ".engine", ".xml", ".bin"]:
+        candidate = base_dir / f"{model_name}{suffix}"
+        if candidate.exists():
+            model_file = candidate
+            break
+
+    if not model_file:
+        return f"❌ 模型文件不存在: {model_name}"
+
+    # 读取元数据
+    yml_path = model_file.with_suffix(".yml")
+    metadata = {}
+    if yml_path.exists():
+        try:
+            with open(yml_path, "r", encoding="utf-8") as f:
+                metadata = yaml.safe_load(f) or {}
+        except Exception as e:
+            logger.warning(f"读取模型元数据失败 {yml_path}: {e}")
+
+    # 获取文件信息
+    try:
+        file_size = model_file.stat().st_size
+        size_mb = file_size / (1024 * 1024)
+        created_time = datetime.fromtimestamp(model_file.stat().st_mtime)
+        modified_time = datetime.fromtimestamp(model_file.stat().st_ctime)
+    except Exception:
+        size_mb = 0
+        created_time = datetime.now()
+        modified_time = datetime.now()
+
+    # 构建详细信息
+    info_lines = [
+        f"# 📦 模型详细信息",
+        f"",
+        f"**模型名称:** {model_name}",
+        f"**文件路径:** `{model_file}`",
+        f"**文件大小:** {size_mb:.2f} MB",
+        f"**创建时间:** {created_time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"**修改时间:** {modified_time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"**模型类型:** {'预训练模型' if is_pretrained else '训练模型'}",
+        f"",
+    ]
+
+    # 添加元数据信息
+    if metadata:
+        info_lines.append("## 📋 元数据信息")
+
+        # 基本信息
+        if "task" in metadata:
+            task_display = metadata.get("task_display", metadata["task"])
+            info_lines.append(f"**任务类型:** {task_display}")
+
+        if "version" in metadata:
+            info_lines.append(f"**YOLO版本:** {metadata['version']}")
+
+        if "size" in metadata:
+            info_lines.append(f"**模型大小:** {metadata['size']}")
+
+        if "description" in metadata:
+            desc = metadata["description"]
+            info_lines.append(f"**描述:**")
+            # 处理多行描述
+            if isinstance(desc, str):
+                # 清理描述内容，去掉多余的空行和空格
+                cleaned_desc = desc.strip()
+                for line in cleaned_desc.split("\n"):
+                    line = line.strip()
+                    if line:  # 只添加非空行
+                        info_lines.append(f"> {line}")
+            else:
+                info_lines.append(f"> {desc}")
+
+        # 训练相关信息（仅训练模型）
+        if not is_pretrained:
+            if "base_model" in metadata:
+                info_lines.append(f"**基础模型:** {metadata['base_model']}")
+            if "dataset" in metadata:
+                info_lines.append(f"**训练数据集:** {metadata['dataset']}")
+            if "epochs_trained" in metadata:
+                info_lines.append(f"**训练轮次:** {metadata['epochs_trained']}")
+            if "training_date" in metadata:
+                info_lines.append(f"**训练日期:** {metadata['training_date']}")
+            if "model_type" in metadata:
+                model_type_display = {"best": "最佳权重", "latest": "最新权重"}.get(
+                    metadata["model_type"], metadata["model_type"]
+                )
+                info_lines.append(f"**权重类型:** {model_type_display}")
+
+        info_lines.append("")
+
+        # 完整元数据
+        info_lines.append("## 🔧 完整元数据")
+        info_lines.append("```yaml")
+        try:
+            yaml_content = yaml.safe_dump(
+                metadata, allow_unicode=True, default_flow_style=False
+            )
+            info_lines.append(yaml_content)
+        except Exception:
+            info_lines.append("无法显示元数据")
+        info_lines.append("```")
+    else:
+        info_lines.append("## ⚠️ 元数据信息")
+        info_lines.append("")
+        info_lines.append("此模型没有关联的元数据文件(.yml)")
+
+    return "\n\n".join(info_lines)
 
 
 def refresh_model_lists() -> tuple[list[str], list[str]]:

@@ -5,18 +5,10 @@ YoloRadio 核心模块
 
 # 数据集管理模块
 from .dataset_manager import (
-    build_ultra_data_yaml,
-    dataset_summary_table,
-    delete_dataset,
-    detect_structure,
-    get_dataset_detail,
+    Dataset,
+    DatasetManager,
+    dataset_manager,
     list_datasets_for_task,
-    read_class_names,
-    read_meta_description,
-    rename_dataset,
-    summarize_dataset,
-    update_meta_description,
-    validate_dataset_by_type,
 )
 
 # 文件操作模块
@@ -35,6 +27,8 @@ from .file_utils import (
 from .model_manager import (
     delete_model,
     download_pretrained_if_missing,
+    get_all_models_info,
+    get_model_detail,
     get_model_details,
     list_models_for_task,
     rename_model,
@@ -62,27 +56,22 @@ __all__ = [
     "safe_extract_zip",
     "safe_extract_tar",
     "ensure_unique_dir",
-    "build_ultra_data_yaml",
     "extract_pathlike",
     "is_supported_archive",
     "strip_archive_suffix",
     "unwrap_single_root",
     # 数据集管理
-    "read_class_names",
-    "detect_structure",
-    "summarize_dataset",
-    "validate_dataset_by_type",
+    "dataset_manager",
+    "Dataset",
+    "DatasetManager",
+    # 数据集弃用API
     "list_datasets_for_task",
-    "rename_dataset",
-    "delete_dataset",
-    "dataset_summary_table",
-    "get_dataset_detail",
-    "read_meta_description",
-    "update_meta_description",
     # 模型管理
     "download_pretrained_if_missing",
     "list_models_for_task",
+    "get_all_models_info",
     "get_model_details",
+    "get_model_detail",
     "rename_model",
     "delete_model",
     # 训练管理

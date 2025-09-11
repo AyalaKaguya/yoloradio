@@ -7,6 +7,8 @@ import gradio as gr
 from ..core import (
     delete_model,
     download_pretrained_if_missing,
+    get_all_models_info,
+    get_model_detail,
     get_model_details,
     rename_model,
 )
@@ -24,26 +26,45 @@ MODEL_TASK_MAP = {
 
 def refresh_model_lists():
     """刷新模型列表"""
-
-    def list_models(dir_path):
-        if not dir_path.exists():
-            return []
-        return [
-            f.stem
-            for f in dir_path.iterdir()
-            if f.is_file() and f.suffix.lower() in {".pt", ".onnx", ".engine"}
-        ]
-
-    pre_models = list_models(MODELS_PRETRAINED_DIR)
-    tr_models = list_models(MODELS_TRAINED_DIR)
+    all_models = get_all_models_info()
+    pre_models = [model["stem"] for model in all_models["pretrained"]]
+    tr_models = [model["stem"] for model in all_models["trained"]]
     return pre_models, tr_models
 
 
 def refresh_model_details():
     """刷新模型详细信息"""
-    pre_details = get_model_details(MODELS_PRETRAINED_DIR)
-    tr_details = get_model_details(MODELS_TRAINED_DIR)
+    all_models = get_all_models_info()
+
+    # 构建表格数据
+    pre_details = [
+        [model["filename"], model["description"], model["created_str"]]
+        for model in all_models["pretrained"]
+    ]
+    tr_details = [
+        [model["filename"], model["description"], model["created_str"]]
+        for model in all_models["trained"]
+    ]
+
     return pre_details, tr_details
+
+
+def get_model_choices_for_detail():
+    """获取用于详细信息下拉框的选项"""
+    all_models = get_all_models_info()
+
+    choices = []
+    # 添加预训练模型
+    for model in all_models["pretrained"]:
+        display_name = f"[预训练] {model['stem']}"
+        choices.append((display_name, model["stem"], True))
+
+    # 添加训练模型
+    for model in all_models["trained"]:
+        display_name = f"[训练] {model['stem']}"
+        choices.append((display_name, model["stem"], False))
+
+    return choices
 
 
 def download_and_register_pretrained(
@@ -105,6 +126,11 @@ def create_models_tab() -> None:
     pre_init, tr_init = refresh_model_lists()
     pre_details_init, tr_details_init = refresh_model_details()
 
+    # 初始化详细信息下拉框选项
+    model_choices = get_model_choices_for_detail()
+    detail_choices_init = [choice[0] for choice in model_choices]  # 显示名称
+    detail_value_init = detail_choices_init[0] if detail_choices_init else None
+
     with gr.Row():
         # 左侧：下载 + 统一管理面板
         with gr.Column(scale=1, min_width=360):
@@ -139,31 +165,54 @@ def create_models_tab() -> None:
                 delete_btn = gr.Button("删除", variant="stop")
             op_status = gr.Markdown(visible=True)
 
-        # 右侧：两个列表，共用一个刷新按钮
+        # 右侧：两个列表和详细信息展示
         with gr.Column(scale=2, min_width=760):
             refresh_btn = gr.Button("刷新列表", variant="secondary")
-            gr.Markdown("### 预训练模型")
-            pretrained_df = gr.Dataframe(
-                headers=["文件名", "描述", "创建时间"],
-                value=pre_details_init,
-                interactive=False,
-            )
-            gr.Markdown("### 训练模型")
-            trained_df = gr.Dataframe(
-                headers=["文件名", "描述", "创建时间"],
-                value=tr_details_init,
-                interactive=False,
-            )
+
+            with gr.Row():
+                # 模型列表列
+                with gr.Column(scale=1):
+                    gr.Markdown("### 预训练模型")
+                    pretrained_df = gr.Dataframe(
+                        headers=["文件名", "描述", "创建时间"],
+                        value=pre_details_init,
+                        interactive=False,
+                    )
+                    gr.Markdown("### 训练模型")
+                    trained_df = gr.Dataframe(
+                        headers=["文件名", "描述", "创建时间"],
+                        value=tr_details_init,
+                        interactive=False,
+                    )
+
+                    # 详细信息展示列
+                    gr.Markdown("### 模型详细信息")
+                    model_detail_dropdown = gr.Dropdown(
+                        choices=detail_choices_init,
+                        value=detail_value_init,
+                        label="选择要查看的模型",
+                        interactive=True,
+                    )
+                    model_detail_area = gr.Markdown(
+                        value="请选择一个模型查看详细信息", visible=True
+                    )
 
     def _refresh_models_for_category(category: str):
         pre, tr = refresh_model_lists()
         pre_details, tr_details = refresh_model_details()
         choices = pre if category == "预训练" else tr
         value = choices[0] if choices else None
+
+        # 更新详细信息下拉框选项
+        model_choices = get_model_choices_for_detail()
+        detail_choices = [choice[0] for choice in model_choices]  # 显示名称
+        detail_value = detail_choices[0] if detail_choices else None
+
         return (
             gr.update(value=pre_details),
             gr.update(value=tr_details),
             gr.update(choices=choices, value=value),
+            gr.update(choices=detail_choices, value=detail_value),
         )
 
     def _on_category_change(category: str):
@@ -171,6 +220,24 @@ def create_models_tab() -> None:
         choices = pre if category == "预训练" else tr
         value = choices[0] if choices else None
         return gr.update(choices=choices, value=value)
+
+    def _update_model_detail(selected_display: str):
+        """更新模型详细信息显示"""
+        if not selected_display:
+            return gr.update(value="请选择一个模型查看详细信息")
+
+        # 解析选择的模型
+        if selected_display.startswith("[预训练] "):
+            model_name = selected_display[5:].strip()
+            is_pretrained = True
+        elif selected_display.startswith("[训练] "):
+            model_name = selected_display[4:].strip()
+            is_pretrained = False
+        else:
+            return gr.update(value="无法解析模型信息")
+
+        detail_info = get_model_detail(model_name, is_pretrained)
+        return gr.update(value=detail_info)
 
     def _fetch(
         task: str,
@@ -215,21 +282,46 @@ def create_models_tab() -> None:
     fetch_btn.click(
         fn=_refresh_models_for_category,
         inputs=[cat_radio],
-        outputs=[pretrained_df, trained_df, mdl_sel],
+        outputs=[pretrained_df, trained_df, mdl_sel, model_detail_dropdown],
     )
     refresh_btn.click(
         fn=_refresh_models_for_category,
         inputs=[cat_radio],
-        outputs=[pretrained_df, trained_df, mdl_sel],
+        outputs=[pretrained_df, trained_df, mdl_sel, model_detail_dropdown],
     )
     cat_radio.change(fn=_on_category_change, inputs=[cat_radio], outputs=[mdl_sel])
     rename_btn.click(
         fn=_rename,
         inputs=[cat_radio, mdl_sel, new_name_in],
-        outputs=[op_status, pretrained_df, trained_df, mdl_sel],
+        outputs=[op_status, pretrained_df, trained_df, mdl_sel, model_detail_dropdown],
     )
     delete_btn.click(
         fn=_delete,
         inputs=[cat_radio, mdl_sel],
-        outputs=[op_status, pretrained_df, trained_df, mdl_sel],
+        outputs=[op_status, pretrained_df, trained_df, mdl_sel, model_detail_dropdown],
     )
+
+    # 模型详细信息相关事件
+    model_detail_dropdown.change(
+        fn=_update_model_detail,
+        inputs=[model_detail_dropdown],
+        outputs=[model_detail_area],
+    )
+
+    # 页面加载时显示初始模型的详细信息
+    if detail_value_init:
+        # 解析初始选择的模型
+        if detail_value_init.startswith("[预训练] "):
+            initial_model_name = detail_value_init[5:].strip()
+            initial_is_pretrained = True
+        elif detail_value_init.startswith("[训练] "):
+            initial_model_name = detail_value_init[4:].strip()
+            initial_is_pretrained = False
+        else:
+            initial_model_name = None
+            initial_is_pretrained = True
+
+        if initial_model_name:
+            model_detail_area.value = get_model_detail(
+                initial_model_name, initial_is_pretrained
+            )
