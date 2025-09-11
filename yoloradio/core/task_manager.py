@@ -340,32 +340,109 @@ class TaskManager:
             self._notify_status_change(task)
 
     def _run_training(self, task: Task):
-        """运行训练（这里需要集成实际的训练逻辑）"""
-        # 这里应该调用原来的训练逻辑
-        # 暂时用模拟训练代替
+        """运行训练（集成真实的YOLO训练逻辑）"""
         config = task.config
 
-        for epoch in range(1, config.epochs + 1):
-            if not self.is_running or task.status != TaskStatus.RUNNING:
-                break
+        try:
+            # 导入真实训练函数
+            from .training_manager import start_training as real_start_training
 
-            # 模拟训练输出
-            loss = 1.0 - (epoch / config.epochs) * 0.8
-            accuracy = (epoch / config.epochs) * 0.9
+            # 调用真实的训练启动函数
+            success, message = real_start_training(
+                task_code=config.task_code,
+                dataset_name=config.dataset_name,
+                model_path=config.model_path,
+                epochs=config.epochs,
+                lr0=config.lr0,
+                imgsz=config.imgsz,
+                batch=config.batch,
+                device=config.device,
+                degrees=config.degrees,
+                translate=config.translate,
+                scale=config.scale,
+                shear=config.shear,
+                fliplr=config.fliplr,
+                flipud=config.flipud,
+                mosaic=config.mosaic,
+                mixup=config.mixup,
+                optimizer=config.optimizer,
+                momentum=config.momentum,
+                weight_decay=config.weight_decay,
+                workers=config.workers,
+            )
 
-            # 更新进度
-            task.progress.current_epoch = epoch
-            task.progress.loss = loss
-            task.progress.accuracy = accuracy
+            if not success:
+                raise Exception(message)
 
-            # 添加日志
-            log_line = f"Epoch {epoch}/{config.epochs} - loss: {loss:.4f} - acc: {accuracy:.4f}"
-            task.logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] {log_line}")
+            # 获取训练状态并持续监控
+            from .training_manager import training_state
 
-            self._notify_progress_update(task)
+            # 等待训练真正开始
+            timeout = 30  # 30秒超时
+            start_time = time.time()
+            while (
+                not training_state.is_running and (time.time() - start_time) < timeout
+            ):
+                time.sleep(0.5)
 
-            # 模拟训练时间
-            time.sleep(1)
+            if not training_state.is_running:
+                raise Exception("训练启动超时")
+
+            # 监控训练进程
+            while (
+                training_state.is_running
+                and self.is_running
+                and task.status == TaskStatus.RUNNING
+            ):
+                # 更新任务进度
+                task.progress.current_epoch = training_state.current_epoch
+                task.progress.total_epochs = training_state.total_epochs
+
+                # 获取最新日志
+                if training_state.log_lines:
+                    # 只添加新的日志行
+                    new_logs = training_state.log_lines[len(task.logs) :]
+                    task.logs.extend(new_logs)
+
+                    # 解析最新的日志行以提取指标
+                    for log_line in new_logs:
+                        parsed_data = self.output_parser.parse_line(log_line)
+                        if parsed_data:
+                            self.output_parser.update_progress(
+                                task.progress, parsed_data
+                            )
+
+                # 通知进度更新
+                self._notify_progress_update(task)
+
+                # 检查是否应该停止
+                if not self.is_running or task.status != TaskStatus.RUNNING:
+                    # 停止真实训练
+                    from .training_manager import stop_training
+
+                    stop_training()
+                    break
+
+                time.sleep(2)  # 每2秒检查一次
+
+            # 训练完成处理
+            if training_state.is_running:
+                # 等待训练自然完成
+                while training_state.is_running:
+                    time.sleep(1)
+
+            # 最后更新一次状态
+            task.progress.current_epoch = training_state.current_epoch
+            task.progress.total_epochs = training_state.total_epochs
+            if training_state.log_lines:
+                task.logs = training_state.log_lines.copy()
+
+        except Exception as e:
+            logger.error(f"训练执行失败: {e}")
+            task.logs.append(
+                f"[{datetime.now().strftime('%H:%M:%S')}] ❌ 训练失败: {e}"
+            )
+            raise
 
     def _stop_current_task(self):
         """停止当前任务"""

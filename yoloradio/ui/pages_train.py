@@ -191,6 +191,8 @@ def create_train_tab() -> None:
                         acc_display = gr.Number(label="准确率", interactive=False)
                         progress_display = gr.Number(label="进度%", interactive=False)
 
+                        clear_logs_btn = gr.Button("清空日志", variant="secondary")
+
                 # 右侧：实时日志
                 with gr.Column(scale=2):
                     gr.Markdown("### 实时日志")
@@ -202,10 +204,6 @@ def create_train_tab() -> None:
                         show_copy_button=True,
                         autoscroll=True,
                     )
-
-                    with gr.Row():
-                        clear_logs_btn = gr.Button("清空日志", variant="secondary")
-                        export_logs_btn = gr.Button("导出日志", variant="secondary")
 
     # 辅助函数
     def _to_task_code(display: str) -> str:
