@@ -1,19 +1,102 @@
+"""模型管理页面模块"""
+
 from __future__ import annotations
 
 import gradio as gr
 
-from .paths import MODELS_DIR, MODELS_PRETRAINED_DIR, MODELS_TRAINED_DIR
-from .utils import (
-    MODEL_TASK_MAP,
+from ..core import (
     delete_model,
-    download_and_register_pretrained,
-    refresh_model_details,
-    refresh_model_lists,
+    download_pretrained_if_missing,
+    get_model_details,
     rename_model,
 )
+from ..core.paths import MODELS_DIR, MODELS_PRETRAINED_DIR, MODELS_TRAINED_DIR
+
+# 模型任务映射与数据集一致
+MODEL_TASK_MAP = {
+    "图像分类": "classify",
+    "目标检测": "detect",
+    "图像分割": "segment",
+    "关键点跟踪": "pose",
+    "旋转检测框识别": "obb",
+}
 
 
-def render() -> None:
+def refresh_model_lists():
+    """刷新模型列表"""
+
+    def list_models(dir_path):
+        if not dir_path.exists():
+            return []
+        return [
+            f.stem
+            for f in dir_path.iterdir()
+            if f.is_file() and f.suffix.lower() in {".pt", ".onnx", ".engine"}
+        ]
+
+    pre_models = list_models(MODELS_PRETRAINED_DIR)
+    tr_models = list_models(MODELS_TRAINED_DIR)
+    return pre_models, tr_models
+
+
+def refresh_model_details():
+    """刷新模型详细信息"""
+    pre_details = get_model_details(MODELS_PRETRAINED_DIR)
+    tr_details = get_model_details(MODELS_TRAINED_DIR)
+    return pre_details, tr_details
+
+
+def download_and_register_pretrained(
+    task: str, ver: str, size: str, name: str, desc: str, progress_cb=None
+):
+    """下载并注册预训练模型"""
+    try:
+        # 构建模型文件名
+        task_code = MODEL_TASK_MAP.get(task, "detect")
+        if task_code == "detect":
+            model_name = f"yolo{ver}{size}.pt"
+        else:
+            model_name = f"yolo{ver}{size}-{task_code}.pt"
+
+        # 调用核心下载函数
+        ok, msg, _ = download_pretrained_if_missing(model_name)
+
+        if ok and name:
+            # 如果指定了自定义名称，进行重命名
+            old_path = MODELS_PRETRAINED_DIR / model_name
+            new_name_with_ext = f"{name}.pt"
+            new_path = MODELS_PRETRAINED_DIR / new_name_with_ext
+
+            if new_path.exists():
+                return False, f"名称 '{name}' 已存在"
+
+            try:
+                old_path.rename(new_path)
+
+                # 创建元数据文件
+                if desc:
+                    meta_content = f"""name: {name}
+description: {desc}
+task: {task_code}
+version: {ver}
+size: {size}
+created_at: {old_path.stat().st_mtime if old_path.exists() else "unknown"}
+"""
+                    meta_path = new_path.with_suffix(".yml")
+                    meta_path.write_text(meta_content, encoding="utf-8")
+
+                return True, f"模型已下载并重命名为: {new_name_with_ext}"
+            except Exception as e:
+                return False, f"重命名失败: {e}"
+
+        return ok, msg
+
+    except Exception as e:
+        return False, f"下载失败: {e}"
+
+
+def create_models_tab() -> None:
+    """创建模型管理标签页"""
     gr.Markdown(
         f"模型目录: `{MODELS_DIR}`\n\n- 预训练模型: `{MODELS_PRETRAINED_DIR}`\n- 训练模型: `{MODELS_TRAINED_DIR}`"
     )
@@ -23,7 +106,7 @@ def render() -> None:
     pre_details_init, tr_details_init = refresh_model_details()
 
     with gr.Row():
-        # 左侧：下载 + 统一管理面板（放在下载下方）
+        # 左侧：下载 + 统一管理面板
         with gr.Column(scale=1, min_width=360):
             gr.Markdown("### 获取预训练模型（从 Ultralytics 下载）")
             task_dd = gr.Dropdown(
@@ -150,3 +233,9 @@ def render() -> None:
         inputs=[cat_radio, mdl_sel],
         outputs=[op_status, pretrained_df, trained_df, mdl_sel],
     )
+
+
+# 保持向后兼容性
+def render() -> None:
+    """向后兼容的渲染函数"""
+    create_models_tab()

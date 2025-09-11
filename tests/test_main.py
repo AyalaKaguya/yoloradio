@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import gradio as gr
 
-from main import create_app
+from yoloradio.app import create_app
 
 
 class TestApp:

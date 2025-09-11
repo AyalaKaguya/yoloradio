@@ -1,8 +1,11 @@
+"""首页模块 - 显示项目概览和目录状态"""
+
 from __future__ import annotations
 
 import gradio as gr
 
-from .paths import (
+from ..core import get_model_details, list_dir
+from ..core.paths import (
     DATASETS_DIR,
     LOGS_DIR,
     MODELS_DIR,
@@ -18,10 +21,9 @@ try:
 except Exception:
     ULTRA_VERSION = "not installed"
 
-from .utils import get_model_details, list_dir
 
-
-def render() -> None:
+def create_home_tab() -> None:
+    """创建首页标签页"""
     gr.Markdown(
         f"""
         # yoloradio
@@ -48,6 +50,7 @@ def render() -> None:
     logs_md = gr.Markdown(value="加载中…")
 
     def refresh_overview():
+        """刷新概览信息"""
         ds_list = list_dir(DATASETS_DIR)
         # 获取详细模型信息
         pre_details = get_model_details(MODELS_PRETRAINED_DIR)
@@ -86,3 +89,9 @@ def render() -> None:
     logs_md.value = lg0
 
     refresh_btn.click(fn=refresh_overview, outputs=[datasets_md, models_md, logs_md])
+
+
+# 保持向后兼容性
+def render() -> None:
+    """向后兼容的渲染函数"""
+    create_home_tab()

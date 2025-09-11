@@ -53,7 +53,7 @@ def main() -> int:
         project_root = Path(__file__).parent.parent
         sys.path.insert(0, str(project_root))
 
-        from main import create_app
+        from yoloradio.app import create_app
 
         app = create_app()
 

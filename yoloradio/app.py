@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import gradio as gr
 
-from yoloradio.pages_datasets import render as datasets_render
-from yoloradio.pages_export import render as export_render
-from yoloradio.pages_home import render as home_render
-from yoloradio.pages_models import render as models_render
-from yoloradio.pages_quick import render as quick_render
-from yoloradio.pages_train import render as train_render
-from yoloradio.pages_val import render as val_render
+from yoloradio.ui.pages_datasets import render as datasets_render
+from yoloradio.ui.pages_export import render as export_render
+from yoloradio.ui.pages_home import render as home_render
+from yoloradio.ui.pages_models import render as models_render
+from yoloradio.ui.pages_quick import render as quick_render
+from yoloradio.ui.pages_train import render as train_render
+from yoloradio.ui.pages_val import render as val_render
 
 
 def create_app() -> gr.Blocks:
