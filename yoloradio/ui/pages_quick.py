@@ -11,9 +11,3 @@ def create_quick_tab() -> None:
 
     # TODO: 实现快速推理功能
     gr.Markdown("快速推理功能正在开发中...")
-
-
-# 保持向后兼容性
-def render() -> None:
-    """向后兼容的渲染函数"""
-    create_quick_tab()

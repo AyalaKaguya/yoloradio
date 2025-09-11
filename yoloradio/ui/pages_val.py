@@ -11,9 +11,3 @@ def create_val_tab() -> None:
 
     # TODO: 实现验证功能
     gr.Markdown("验证功能正在开发中...")
-
-
-# 保持向后兼容性
-def render() -> None:
-    """向后兼容的渲染函数"""
-    create_val_tab()

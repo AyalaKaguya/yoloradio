@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import gradio as gr
 
-from yoloradio.ui.pages_datasets import render as datasets_render
-from yoloradio.ui.pages_export import render as export_render
-from yoloradio.ui.pages_home import render as home_render
-from yoloradio.ui.pages_models import render as models_render
-from yoloradio.ui.pages_quick import render as quick_render
-from yoloradio.ui.pages_train import render as train_render
-from yoloradio.ui.pages_val import render as val_render
+from yoloradio.ui import (
+    create_datasets_tab,
+    create_export_tab,
+    create_home_tab,
+    create_models_tab,
+    create_quick_tab,
+    create_train_tab,
+    create_val_tab,
+)
 
 
 def create_app() -> gr.Blocks:
@@ -21,25 +23,25 @@ def create_app() -> gr.Blocks:
 
     # Render homepage at root path
     with app:
-        home_render()
+        create_home_tab()
 
     with app.route(name="数据集", path="datasets"):
-        datasets_render()
+        create_datasets_tab()
 
     with app.route(name="模型", path="models"):
-        models_render()
+        create_models_tab()
 
     with app.route(name="训练", path="train"):
-        train_render()
+        create_train_tab()
 
     with app.route(name="验证", path="val"):
-        val_render()
+        create_val_tab()
 
     with app.route(name="导出", path="export"):
-        export_render()
+        create_export_tab()
 
     with app.route(name="快速应用", path="quick"):
-        quick_render()
+        create_quick_tab()
 
     return app
 

@@ -1,5 +1,3 @@
-"""训练页面模块"""
-
 from __future__ import annotations
 
 import gradio as gr
@@ -29,7 +27,6 @@ DATASET_TYPE_MAP = {
 
 
 def create_train_tab() -> None:
-    """创建训练标签页"""
     gr.Markdown("## 模型训练\n在这里配置训练参数，监控训练状态，查看历史训练日志。")
 
     # 初始可选项（默认按目标检测）
@@ -40,6 +37,7 @@ def create_train_tab() -> None:
     init_model_labels = [m[0] for m in init_models]
 
     with gr.Tabs():
+
         with gr.Tab("配置"):
             with gr.Row():
                 # 左：任务/数据集/模型
@@ -61,196 +59,422 @@ def create_train_tab() -> None:
                         label="模型",
                     )
 
-                # 右：训练参数
-                with gr.Column(scale=2):
-                    with gr.Row():
-                        epochs_num = gr.Number(
-                            label="训练轮数", value=10, minimum=1, maximum=1000
+                # 中：核心超参 + 高级折叠
+                with gr.Column(scale=1, min_width=320):
+                    epochs_in = gr.Slider(
+                        1, 1000, value=100, step=1, label="训练轮次 epochs"
+                    )
+                    lr_in = gr.Number(value=0.01, label="初始学习率 lr0")
+                    imgsz_in = gr.Slider(
+                        256, 2048, value=640, step=32, label="图像尺寸 imgsz"
+                    )
+                    batch_in = gr.Slider(1, 256, value=16, step=1, label="批大小 batch")
+                    with gr.Accordion("数据增强/优化参数", open=False):
+                        degrees_in = gr.Slider(
+                            0, 45, value=0.0, step=0.5, label="旋转 degrees"
                         )
-                        lr0_num = gr.Number(
-                            label="学习率", value=0.01, minimum=0.0001, maximum=1.0
+                        translate_in = gr.Slider(
+                            0, 0.5, value=0.1, step=0.01, label="平移 translate"
                         )
-                    with gr.Row():
-                        imgsz_num = gr.Number(
-                            label="图像尺寸", value=640, minimum=320, maximum=1280
+                        scale_in = gr.Slider(
+                            0.0, 2.0, value=0.5, step=0.05, label="缩放 scale"
                         )
-                        batch_num = gr.Number(
-                            label="批大小", value=16, minimum=1, maximum=128
+                        shear_in = gr.Slider(
+                            0, 10, value=0.0, step=0.5, label="剪切 shear"
                         )
-                    device_dd = gr.Dropdown(
-                        choices=["auto", "cpu", "0", "1", "2", "3"],
-                        value="auto",
-                        label="设备选择",
+                        fliplr_in = gr.Slider(
+                            0.0, 1.0, value=0.5, step=0.05, label="左右翻转概率 fliplr"
+                        )
+                        flipud_in = gr.Slider(
+                            0.0, 1.0, value=0.0, step=0.05, label="上下翻转概率 flipud"
+                        )
+                        mosaic_in = gr.Slider(
+                            0.0, 1.0, value=1.0, step=0.05, label="mosaic"
+                        )
+                        mixup_in = gr.Slider(
+                            0.0, 1.0, value=0.0, step=0.05, label="mixup"
+                        )
+
+                    with gr.Accordion("训练器与系统参数", open=False):
+                        optimizer_in = gr.Radio(
+                            choices=["auto", "SGD", "Adam", "AdamW"],
+                            value="auto",
+                            label="优化器 optimizer",
+                        )
+                        momentum_in = gr.Slider(
+                            0.0, 1.0, value=0.937, step=0.001, label="动量 momentum"
+                        )
+                        weight_decay_in = gr.Number(
+                            value=0.0005, label="权重衰减 weight_decay"
+                        )
+                        device_in = gr.Textbox(value="auto", label="设备 device")
+                        workers_in = gr.Slider(
+                            0, 16, value=8, step=1, label="DataLoader 线程 workers"
+                        )
+
+                # 右：实时 TOML（使用 yaml 语法高亮）
+                with gr.Column(scale=1, min_width=360):
+                    toml_preview = gr.Code(
+                        language="yaml", value="", label="TOML 预览", interactive=False
                     )
 
-            # 训练控制
+            # 内部状态：任务代码 + 模型标签->路径 映射（供后续运行使用）
+            st_task_code = gr.State(default_task_code)
+            st_model_map = gr.State({lbl: path for lbl, path in init_models})
+
+        with gr.Tab("训练"):
             with gr.Row():
-                start_btn = gr.Button("开始训练", variant="primary", size="lg")
-                pause_btn = gr.Button("暂停", variant="secondary", size="lg")
-                resume_btn = gr.Button("恢复", variant="secondary", size="lg")
-                stop_btn = gr.Button("停止", variant="stop", size="lg")
+                # 左侧：控制按钮
+                with gr.Column(scale=1, min_width=320):
+                    gr.Markdown("### 训练控制")
 
-            # 状态显示
-            status_md = gr.Markdown("训练未开始")
+                    # 环境检查
+                    env_status_md = gr.Markdown("🔍 检查训练环境...")
+                    check_env_btn = gr.Button("检查环境", variant="secondary")
 
-        with gr.Tab("监控"):
-            with gr.Column():
-                monitor_refresh_btn = gr.Button("刷新状态", variant="secondary")
+                    train_status_md = gr.Markdown("状态: 就绪")
+                    train_progress = gr.Progress()
 
-                # 训练状态概览
-                with gr.Row():
-                    with gr.Column():
-                        progress_md = gr.Markdown("进度: 等待中...")
-                        device_info_md = gr.Markdown("设备信息: 检测中...")
-                    with gr.Column():
-                        epoch_md = gr.Markdown("轮次: 0/0")
-                        run_id_md = gr.Markdown("运行ID: 无")
+                    with gr.Row():
+                        start_btn = gr.Button("开始训练", variant="primary")
+                        pause_btn = gr.Button("暂停", variant="secondary")
+                        resume_btn = gr.Button("恢复", variant="secondary")
+                        stop_btn = gr.Button("停止", variant="stop")
 
-                # 实时日志
-                gr.Markdown("### 训练日志")
-                with gr.Row():
-                    logs_refresh_btn = gr.Button("刷新日志", variant="secondary")
                     clear_logs_btn = gr.Button("清空日志", variant="secondary")
 
-                logs_textbox = gr.Textbox(
-                    label="实时日志",
-                    lines=20,
-                    max_lines=30,
-                    value="等待训练开始...",
-                    interactive=False,
-                    show_copy_button=True,
-                )
+                    # 设备信息
+                    device_info_md = gr.Markdown(f"**设备信息**: {get_device_info()}")
 
-        with gr.Tab("环境检查"):
-            env_check_btn = gr.Button("检查训练环境", variant="primary")
-            env_result = gr.Markdown("点击按钮检查训练环境")
+                    gr.Markdown("### 训练信息")
+                    train_info_md = gr.Markdown("等待开始训练...")
 
-    # 事件处理函数
-    def _refresh_choices(task_display: str):
-        """刷新数据集和模型选择"""
-        task_code = DATASET_TYPE_MAP.get(task_display, "detect")
-        datasets = list_datasets_for_task(task_code)
-        models = list_models_for_task(task_code)
-        model_labels = [m[0] for m in models]
+                # 右侧：实时日志
+                with gr.Column(scale=2, min_width=640):
+                    gr.Markdown("### 训练日志")
+                    log_output = gr.Textbox(
+                        label="实时输出",
+                        lines=20,
+                        max_lines=30,
+                        interactive=False,
+                        show_copy_button=True,
+                        autoscroll=True,
+                    )
 
+        with gr.Tab("日志"):
+            gr.Markdown("### 训练日志浏览")
+            gr.Markdown("此处可以浏览完整的训练日志和生成的图表。")
+
+    def _to_task_code(display: str) -> str:
+        return DATASET_TYPE_MAP.get(display, "detect")
+
+    def _refresh_options(task_display: str):
+        code = _to_task_code(task_display)
+        ds = list_datasets_for_task(code)
+        models = list_models_for_task(code)
+        labels = [m[0] for m in models]
+        ds_val = ds[0] if ds else None
+        mdl_val = labels[0] if labels else None
         return (
-            gr.update(choices=datasets, value=datasets[0] if datasets else None),
-            gr.update(
-                choices=model_labels, value=model_labels[0] if model_labels else None
-            ),
+            gr.update(choices=ds, value=ds_val),
+            gr.update(choices=labels, value=mdl_val),
+            code,
+            {lbl: path for lbl, path in models},
         )
 
+    def _make_toml(
+        task_display: str,
+        ds: str,
+        mdl: str,
+        epochs: int,
+        lr0: float,
+        imgsz: int,
+        batch: int,
+        degrees: float,
+        translate: float,
+        scale: float,
+        shear: float,
+        fliplr: float,
+        flipud: float,
+        mosaic: float,
+        mixup: float,
+        optimizer: str,
+        momentum: float,
+        weight_decay: float,
+        device: str,
+        workers: int,
+    ):
+        task_code = _to_task_code(task_display)
+        # 简单 TOML 拼装
+        lines = []
+        lines.append(f'task = "{task_code}"')
+        if ds:
+            lines.append(f'dataset = "{ds}"')
+        if mdl:
+            lines.append(f'model = "{mdl}"')
+        lines.append("")
+        lines.append("[train]")
+        lines.append(f"epochs = {int(epochs)}")
+        lines.append(f"lr0 = {float(lr0)}")
+        lines.append(f"imgsz = {int(imgsz)}")
+        lines.append(f"batch = {int(batch)}")
+        lines.append("")
+        lines.append("[augment]")
+        lines.append(f"degrees = {float(degrees)}")
+        lines.append(f"translate = {float(translate)}")
+        lines.append(f"scale = {float(scale)}")
+        lines.append(f"shear = {float(shear)}")
+        lines.append(f"fliplr = {float(fliplr)}")
+        lines.append(f"flipud = {float(flipud)}")
+        lines.append(f"mosaic = {float(mosaic)}")
+        lines.append(f"mixup = {float(mixup)}")
+        lines.append("")
+        lines.append("[trainer]")
+        lines.append(f'optimizer = "{optimizer}"')
+        lines.append(f"momentum = {float(momentum)}")
+        lines.append(f"weight_decay = {float(weight_decay)}")
+        lines.append(f'device = "{device}"')
+        lines.append(f"workers = {int(workers)}")
+        return "\n".join(lines) + "\n"
+
+    # 事件：改变任务 -> 刷新 数据集/模型 选择 + 状态
+    task_dd.change(
+        fn=_refresh_options,
+        inputs=[task_dd],
+        outputs=[ds_dd, mdl_dd, st_task_code, st_model_map],
+    )
+    refresh_btn.click(
+        fn=_refresh_options,
+        inputs=[task_dd],
+        outputs=[ds_dd, mdl_dd, st_task_code, st_model_map],
+    )
+
+    # 事件：任一参数变化 -> 重建 TOML 预览
+    inputs_for_toml = [
+        task_dd,
+        ds_dd,
+        mdl_dd,
+        epochs_in,
+        lr_in,
+        imgsz_in,
+        batch_in,
+        degrees_in,
+        translate_in,
+        scale_in,
+        shear_in,
+        fliplr_in,
+        flipud_in,
+        mosaic_in,
+        mixup_in,
+        optimizer_in,
+        momentum_in,
+        weight_decay_in,
+        device_in,
+        workers_in,
+    ]
+    for comp in inputs_for_toml:
+        comp.change(
+            fn=_make_toml,
+            inputs=inputs_for_toml,
+            outputs=[toml_preview],
+        )
+
+    # 初次渲染时生成一次 TOML 预览
+    toml_preview.value = _make_toml(
+        default_task_display,
+        (init_ds[0] if init_ds else ""),
+        (init_model_labels[0] if init_model_labels else ""),
+        100,
+        0.01,
+        640,
+        16,
+        0.0,
+        0.1,
+        0.5,
+        0.0,
+        0.5,
+        0.0,
+        1.0,
+        0.0,
+        "auto",
+        0.937,
+        0.0005,
+        "auto",
+        8,
+    )
+
+    # 训练相关的函数
     def _start_training(
-        task: str,
+        task_display: str,
         dataset: str,
         model_label: str,
         epochs: int,
         lr0: float,
         imgsz: int,
         batch: int,
+        degrees: float,
+        translate: float,
+        scale: float,
+        shear: float,
+        fliplr: float,
+        flipud: float,
+        mosaic: float,
+        mixup: float,
+        optimizer: str,
+        momentum: float,
+        weight_decay: float,
         device: str,
+        workers: int,
+        task_code: str,
+        model_map: dict,
     ):
-        """开始训练"""
         if not dataset or not model_label:
-            return "请选择数据集和模型"
+            return "❌ 请选择数据集和模型", "状态: 就绪"
 
-        # 从模型标签中找到对应的路径
-        task_code = DATASET_TYPE_MAP.get(task, "detect")
-        models = list_models_for_task(task_code)
-        model_path = None
-        for label, path in models:
-            if label == model_label:
-                model_path = path
-                break
+        if model_label not in model_map:
+            return "❌ 模型路径无效", "状态: 就绪"
 
-        if not model_path:
-            return "找不到选中的模型文件"
+        model_path = model_map[model_label]
 
-        ok, msg = start_training(
+        # 准备训练参数
+        train_kwargs = {
+            "degrees": degrees,
+            "translate": translate,
+            "scale": scale,
+            "shear": shear,
+            "fliplr": fliplr,
+            "flipud": flipud,
+            "mosaic": mosaic,
+            "mixup": mixup,
+            "optimizer": optimizer,
+            "momentum": momentum,
+            "weight_decay": weight_decay,
+            "workers": workers,
+        }
+
+        success, message = start_training(
             task_code=task_code,
             dataset_name=dataset,
             model_path=model_path,
-            epochs=int(epochs),
-            lr0=float(lr0),
-            imgsz=int(imgsz),
-            batch=int(batch),
+            epochs=epochs,
+            lr0=lr0,
+            imgsz=imgsz,
+            batch=batch,
             device=device,
+            **train_kwargs,
         )
 
-        return msg
-
-    def _get_training_status():
-        """获取训练状态"""
-        status = get_training_status()
-
-        # 格式化状态信息
-        if status["is_running"]:
-            progress_text = f"进度: {status['progress']:.1f}% ({status['current_epoch']}/{status['total_epochs']})"
-            status_text = "🟢 训练进行中" + (
-                f" (已暂停)" if status["is_paused"] else ""
-            )
+        if success:
+            return f"✅ {message}", "状态: 训练中..."
         else:
-            progress_text = "进度: 等待中..."
-            status_text = "⚪ 训练未开始"
+            return f"❌ {message}", "状态: 就绪"
 
-        epoch_text = f"轮次: {status['current_epoch']}/{status['total_epochs']}"
-        run_id_text = f"运行ID: {status['run_id'] or '无'}"
+    def _pause_training():
+        success, message = pause_training()
+        if success:
+            return f"⏸️ {message}", "状态: 已暂停"
+        else:
+            return f"❌ {message}", "状态: 错误"
 
-        return progress_text, status_text, epoch_text, run_id_text
+    def _resume_training():
+        success, message = resume_training()
+        if success:
+            return f"▶️ {message}", "状态: 训练中..."
+        else:
+            return f"❌ {message}", "状态: 错误"
 
-    def _get_logs():
-        """获取训练日志"""
+    def _stop_training():
+        success, message = stop_training()
+        if success:
+            return f"⏹️ {message}", "状态: 已停止"
+        else:
+            return f"❌ {message}", "状态: 错误"
+
+    def _clear_logs():
+        clear_training_logs()
+        return "", "日志已清空"
+
+    def _update_training_display():
+        """更新训练状态显示"""
+        status = get_training_status()
         logs = get_training_logs()
-        if not logs:
-            return "暂无日志"
-        return "\n".join(logs[-100:])  # 只显示最新100行
 
-    def _check_environment():
-        """检查训练环境"""
-        ok, msg = validate_training_environment()
-        device_info = get_device_info()
-        return f"环境检查结果:\n{msg}\n\n设备信息:\n{device_info}"
+        # 状态信息
+        if status["is_running"]:
+            if status["is_paused"]:
+                status_text = f"状态: 已暂停 - Epoch {status['current_epoch']}/{status['total_epochs']} ({status['progress']:.1f}%)"
+            else:
+                status_text = f"状态: 训练中 - Epoch {status['current_epoch']}/{status['total_epochs']} ({status['progress']:.1f}%)"
+        else:
+            status_text = "状态: 就绪"
 
-    # 绑定事件
-    task_dd.change(fn=_refresh_choices, inputs=[task_dd], outputs=[ds_dd, mdl_dd])
-    refresh_btn.click(fn=_refresh_choices, inputs=[task_dd], outputs=[ds_dd, mdl_dd])
+        # 训练信息
+        if status["run_id"]:
+            info_text = f"""**运行ID**: {status['run_id']}
+**进度**: {status['current_epoch']}/{status['total_epochs']} ({status['progress']:.1f}%)
+**日志行数**: {status['log_count']}"""
+        else:
+            info_text = "等待开始训练..."
 
+        # 日志文本
+        log_text = "\n".join(logs[-100:])  # 只显示最近100行
+
+        return status_text, info_text, log_text
+
+    def _refresh_full_logs():
+        """刷新完整日志"""
+        logs = get_training_logs()
+        return "\n".join(logs)
+
+    # 训练控制事件
     start_btn.click(
         fn=_start_training,
         inputs=[
             task_dd,
             ds_dd,
             mdl_dd,
-            epochs_num,
-            lr0_num,
-            imgsz_num,
-            batch_num,
-            device_dd,
+            epochs_in,
+            lr_in,
+            imgsz_in,
+            batch_in,
+            degrees_in,
+            translate_in,
+            scale_in,
+            shear_in,
+            fliplr_in,
+            flipud_in,
+            mosaic_in,
+            mixup_in,
+            optimizer_in,
+            momentum_in,
+            weight_decay_in,
+            device_in,
+            workers_in,
+            st_task_code,
+            st_model_map,
         ],
-        outputs=[status_md],
+        outputs=[train_info_md, train_status_md],
     )
 
-    pause_btn.click(fn=lambda: pause_training()[1], outputs=[status_md])
-    resume_btn.click(fn=lambda: resume_training()[1], outputs=[status_md])
-    stop_btn.click(fn=lambda: stop_training()[1], outputs=[status_md])
+    pause_btn.click(fn=_pause_training, outputs=[train_info_md, train_status_md])
+    resume_btn.click(fn=_resume_training, outputs=[train_info_md, train_status_md])
+    stop_btn.click(fn=_stop_training, outputs=[train_info_md, train_status_md])
+    clear_logs_btn.click(fn=_clear_logs, outputs=[log_output, train_info_md])
 
-    monitor_refresh_btn.click(
-        fn=_get_training_status,
-        outputs=[progress_md, status_md, epoch_md, run_id_md],
+    # 环境检查事件
+    def _check_environment():
+        """检查训练环境并返回结果字符串"""
+        success, message = validate_training_environment()
+        return message
+
+    check_env_btn.click(fn=_check_environment, outputs=[env_status_md])
+
+    # 定期更新训练状态（每2秒）
+    def _periodic_update():
+        return _update_training_display()
+
+    # 使用定时器更新状态
+    timer = gr.Timer(value=2.0, active=True)
+    timer.tick(
+        fn=_periodic_update, outputs=[train_status_md, train_info_md, log_output]
     )
-
-    logs_refresh_btn.click(fn=_get_logs, outputs=[logs_textbox])
-    clear_logs_btn.click(
-        fn=lambda: (clear_training_logs(), "日志已清空")[1], outputs=[logs_textbox]
-    )
-
-    env_check_btn.click(fn=_check_environment, outputs=[env_result])
-
-    # 初始化设备信息
-    device_info_md.value = get_device_info()
-
-
-# 保持向后兼容性
-def render() -> None:
-    """向后兼容的渲染函数"""
-    create_train_tab()

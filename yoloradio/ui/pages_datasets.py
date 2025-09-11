@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import List
 
 import gradio as gr
+import yaml
 
 from ..core import (
     dataset_summary_table,
@@ -22,6 +23,7 @@ from ..core import (
     strip_archive_suffix,
     summarize_dataset,
     unwrap_single_root,
+    update_meta_description,
     validate_dataset_by_type,
 )
 from ..core.paths import DATASETS_DIR
@@ -52,61 +54,15 @@ def build_metadata_yaml(
     splits: dict,
 ):
     """构建元数据YAML"""
-    return f"""name: {name}
-type: {type_code}
-type_display: {type_display}
-description: {description}
-structure: {structure}
-splits: {splits}
-"""
-
-
-def read_meta_description(name: str) -> str:
-    """读取数据集描述"""
-    if not name:
-        return ""
-    meta_path = DATASETS_DIR / f"{name}.yml"
-    if not meta_path.exists():
-        return ""
-
-    try:
-        content = meta_path.read_text(encoding="utf-8")
-        for line in content.splitlines():
-            if line.strip().startswith("description:"):
-                desc = line.split(":", 1)[1].strip()
-                if desc.startswith('"') and desc.endswith('"'):
-                    desc = desc[1:-1]
-                return desc
-    except:
-        pass
-    return ""
-
-
-def update_meta_description(name: str, description: str) -> tuple[bool, str]:
-    """更新数据集描述"""
-    meta_path = DATASETS_DIR / f"{name}.yml"
-    if not meta_path.exists():
-        return False, f"元数据文件不存在: {name}.yml"
-
-    try:
-        lines = meta_path.read_text(encoding="utf-8").splitlines()
-        new_lines = []
-        desc_updated = False
-
-        for line in lines:
-            if line.strip().startswith("description:"):
-                new_lines.append(f'description: "{description}"')
-                desc_updated = True
-            else:
-                new_lines.append(line)
-
-        if not desc_updated:
-            new_lines.append(f'description: "{description}"')
-
-        meta_path.write_text("\n".join(new_lines), encoding="utf-8")
-        return True, "描述已更新"
-    except Exception as e:
-        return False, f"更新失败: {e}"
+    data = {
+        "name": name,
+        "type": type_code,
+        "type_display": type_display,
+        "description": description,
+        "structure": structure,
+        "splits": splits,
+    }
+    return yaml.safe_dump(data, allow_unicode=True, default_flow_style=False)
 
 
 def create_datasets_tab() -> None:
@@ -391,9 +347,3 @@ def create_datasets_tab() -> None:
     detail_ds_select.change(
         fn=_show_dataset_detail, inputs=[detail_ds_select], outputs=[detail_info]
     )
-
-
-# 保持向后兼容性
-def render() -> None:
-    """向后兼容的渲染函数"""
-    create_datasets_tab()

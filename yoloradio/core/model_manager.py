@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+import yaml
+
 from .paths import MODELS_PRETRAINED_DIR, MODELS_TRAINED_DIR
 
 logger = logging.getLogger(__name__)
@@ -242,18 +244,16 @@ def build_model_metadata_yaml(
 ) -> str:
     """构建模型元数据YAML"""
     created_at = datetime.utcnow().isoformat() + "Z"
-    lines = [
-        f"name: {name}",
-        f"task: {task_code}",
-        f"task_display: {task_display}",
-        f"version: {version}",
-        f"size: {size}",
-        "description: |",
-    ]
-    for ln in description.splitlines() or [""]:
-        lines.append(f"  {ln}")
-    lines.append(f"created_at: {created_at}")
-    return "\n".join(lines) + "\n"
+    data = {
+        "name": name,
+        "task": task_code,
+        "task_display": task_display,
+        "version": version,
+        "size": size,
+        "description": description,
+        "created_at": created_at,
+    }
+    return yaml.safe_dump(data, allow_unicode=True, default_flow_style=False)
 
 
 def compute_ultra_weight_name(task_code: str, version: str, size: str) -> str:

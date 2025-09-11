@@ -233,9 +233,3 @@ def create_models_tab() -> None:
         inputs=[cat_radio, mdl_sel],
         outputs=[op_status, pretrained_df, trained_df, mdl_sel],
     )
-
-
-# 保持向后兼容性
-def render() -> None:
-    """向后兼容的渲染函数"""
-    create_models_tab()

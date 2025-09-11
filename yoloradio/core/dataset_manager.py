@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import yaml
+
 from .file_utils import ensure_unique_dir
 from .paths import DATASETS_DIR
 
@@ -63,19 +65,21 @@ def _read_yaml_top_level_value(p: Path, key: str) -> Optional[str]:
     if not p.exists():
         return None
     try:
-        for ln in p.read_text(encoding="utf-8", errors="ignore").splitlines():
-            s = ln.strip()
-            if not s or s.startswith("#"):
-                continue
-            if s.startswith(f"{key}:"):
-                val = s.split(":", 1)[1].strip()
-                # strip possible quotes
-                if val.startswith(("'", '"')) and val.endswith(("'", '"')):
-                    val = val[1:-1]
-                return val
-    except Exception:
+        with p.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+
+        if not isinstance(data, dict):
+            return None
+
+        value = data.get(key)
+        if value is None:
+            return None
+
+        # 转换为字符串
+        return str(value)
+    except Exception as e:
+        logger.warning(f"读取YAML文件失败 {p}: {e}")
         return None
-    return None
 
 
 def dataset_type_code(ds_name: str) -> Optional[str]:
@@ -350,35 +354,22 @@ def read_meta_description(name: str) -> str:
         return ""
 
     try:
-        text = p.read_text(encoding="utf-8")
-        lines = text.splitlines()
+        with p.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
 
-        # 查找description行
-        desc_start = None
-        for idx, ln in enumerate(lines):
-            if ln.strip().startswith("description:"):
-                desc_start = idx
-                break
-
-        if desc_start is None:
+        if not isinstance(data, dict):
             return ""
 
-        # 处理多行描述
-        if "|" in lines[desc_start]:
-            desc = []
-            for j in range(desc_start + 1, len(lines)):
-                ln = lines[j]
-                if ln.startswith("  "):
-                    desc.append(ln[2:])
-                else:
-                    break
-            return "\n".join(desc).rstrip("\n")
+        description = data.get("description", "")
 
-        # 单行描述
-        val = lines[desc_start].split(":", 1)[1].strip()
-        return val
+        # 确保返回字符串
+        if description is None:
+            return ""
 
-    except Exception:
+        return str(description)
+
+    except Exception as e:
+        logger.warning(f"读取数据集描述失败 {p}: {e}")
         return ""
 
 
@@ -389,41 +380,31 @@ def update_meta_description(name: str, new_desc: str) -> tuple[bool, str]:
         return False, "未找到元数据文件"
 
     try:
-        text = p.read_text(encoding="utf-8")
-        lines = text.splitlines()
+        # 读取现有数据
+        with p.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
 
-        # 查找description块
-        desc_start = None
-        for idx, ln in enumerate(lines):
-            if ln.strip().startswith("description:"):
-                desc_start = idx
-                break
+        if not isinstance(data, dict):
+            data = {}
 
-        block = ["description: |"]
-        for ln in new_desc.splitlines() or [""]:
-            block.append(f"  {ln}")
+        # 更新描述
+        data["description"] = new_desc
 
-        if desc_start is None:
-            # 插入新描述块
-            insert_idx = 0
-            for idx, ln in enumerate(lines):
-                if ln.strip().startswith("type_display:"):
-                    insert_idx = idx + 1
-                    break
-                if ln.strip().startswith("name:"):
-                    insert_idx = idx + 1
-            new_lines = lines[:insert_idx] + block + lines[insert_idx:]
-        else:
-            # 替换现有描述块
-            desc_end = desc_start + 1
-            while desc_end < len(lines) and lines[desc_end].startswith("  "):
-                desc_end += 1
-            new_lines = lines[:desc_start] + block + lines[desc_end:]
+        # 写回文件
+        with p.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(
+                data,
+                f,
+                default_flow_style=False,
+                allow_unicode=True,
+                indent=2,
+                sort_keys=False,
+            )
 
-        p.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
         return True, "已更新描述"
 
     except Exception as e:
+        logger.error(f"更新数据集描述失败 {p}: {e}")
         return False, f"更新失败：{e}"
 
 

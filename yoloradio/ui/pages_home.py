@@ -89,9 +89,3 @@ def create_home_tab() -> None:
     logs_md.value = lg0
 
     refresh_btn.click(fn=refresh_overview, outputs=[datasets_md, models_md, logs_md])
-
-
-# 保持向后兼容性
-def render() -> None:
-    """向后兼容的渲染函数"""
-    create_home_tab()

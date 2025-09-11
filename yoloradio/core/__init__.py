@@ -15,6 +15,7 @@ from .dataset_manager import (
     read_meta_description,
     rename_dataset,
     summarize_dataset,
+    update_meta_description,
     validate_dataset_by_type,
 )
 
@@ -77,6 +78,7 @@ __all__ = [
     "dataset_summary_table",
     "get_dataset_detail",
     "read_meta_description",
+    "update_meta_description",
     # 模型管理
     "download_pretrained_if_missing",
     "list_models_for_task",

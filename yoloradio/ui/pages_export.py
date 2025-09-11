@@ -11,9 +11,3 @@ def create_export_tab() -> None:
 
     # TODO: 实现导出功能
     gr.Markdown("导出功能正在开发中...")
-
-
-# 保持向后兼容性
-def render() -> None:
-    """向后兼容的渲染函数"""
-    create_export_tab()

@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+import yaml
+
 from .dataset_manager import build_ultra_data_yaml
 from .paths import DATASETS_DIR, MODELS_TRAINED_DIR, PROJECT_DIR
 
@@ -317,18 +319,22 @@ def _handle_training_completion(
             display_name = f"{task_code}-{base_model_name}-{date_str}-best"
 
             # 创建元数据
-            meta_content = f"""task: {task_code}
-name: {display_name}
-description: "基于 {base_model_name} 在 {dataset_name} 数据集上训练的最佳权重"
-base_model: {base_model_name}
-dataset: {dataset_name}
-training_date: {datetime.now().isoformat()}
-model_type: best
-epochs_trained: {training_state.total_epochs}
-created_at: {datetime.now().isoformat()}
-"""
+            meta_data = {
+                "task": task_code,
+                "name": display_name,
+                "description": f"基于 {base_model_name} 在 {dataset_name} 数据集上训练的最佳权重",
+                "base_model": base_model_name,
+                "dataset": dataset_name,
+                "training_date": datetime.now().isoformat(),
+                "model_type": "best",
+                "epochs_trained": training_state.total_epochs,
+                "created_at": datetime.now().isoformat(),
+            }
             meta_path = MODELS_TRAINED_DIR / f"{uuid_dest.stem}.yml"
-            meta_path.write_text(meta_content, encoding="utf-8")
+            with open(meta_path, "w", encoding="utf-8") as f:
+                yaml.safe_dump(
+                    meta_data, f, allow_unicode=True, default_flow_style=False
+                )
 
             saved_models.append((uuid_name, display_name))
 
@@ -342,18 +348,22 @@ created_at: {datetime.now().isoformat()}
             display_name = f"{task_code}-{base_model_name}-{date_str}-latest"
 
             # 创建元数据
-            meta_content = f"""task: {task_code}
-name: {display_name}
-description: "基于 {base_model_name} 在 {dataset_name} 数据集上训练的最新权重"
-base_model: {base_model_name}
-dataset: {dataset_name}
-training_date: {datetime.now().isoformat()}
-model_type: latest
-epochs_trained: {training_state.total_epochs}
-created_at: {datetime.now().isoformat()}
-"""
+            meta_data = {
+                "task": task_code,
+                "name": display_name,
+                "description": f"基于 {base_model_name} 在 {dataset_name} 数据集上训练的最新权重",
+                "base_model": base_model_name,
+                "dataset": dataset_name,
+                "training_date": datetime.now().isoformat(),
+                "model_type": "latest",
+                "epochs_trained": training_state.total_epochs,
+                "created_at": datetime.now().isoformat(),
+            }
             meta_path = MODELS_TRAINED_DIR / f"{uuid_dest.stem}.yml"
-            meta_path.write_text(meta_content, encoding="utf-8")
+            with open(meta_path, "w", encoding="utf-8") as f:
+                yaml.safe_dump(
+                    meta_data, f, allow_unicode=True, default_flow_style=False
+                )
 
             saved_models.append((uuid_name, display_name))
 
