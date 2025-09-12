@@ -184,25 +184,39 @@ class Dataset:
 
         # 统计各分割的图像和标注数量
         for split_name, split_info in self.splits.items():
+            img_count = 0
+            lbl_count = 0
+
             if isinstance(split_info, dict):
-                # 确保从字典中获取的值是整数
-                img_count = split_info.get("images", 0)
-                lbl_count = split_info.get("labels", 0)
+                img_spec = split_info.get("images")
+                lbl_spec = split_info.get("labels")
 
-                # 如果是字符串，尝试转换为整数，失败则使用实际计算
-                if isinstance(img_count, str):
-                    try:
-                        img_count = int(img_count)
-                    except (ValueError, TypeError):
-                        img_count = self._count_images_in_split(split_name)
+                # images 可能是数字（直接记录）或目录名（需要统计）
+                if isinstance(img_spec, int):
+                    img_count = img_spec
+                elif isinstance(img_spec, str):
+                    img_dir = self._resolve_dir(img_spec)
+                    img_count = _count_files(img_dir, IMG_EXTS)
+                else:
+                    img_count = self._count_images_in_split(split_name)
 
-                if isinstance(lbl_count, str):
-                    try:
-                        lbl_count = int(lbl_count)
-                    except (ValueError, TypeError):
-                        lbl_count = self._count_labels_in_split(split_name)
+                # labels 同理：数字或目录名
+                if isinstance(lbl_spec, int):
+                    lbl_count = lbl_spec
+                elif isinstance(lbl_spec, str):
+                    lbl_dir = self._resolve_dir(lbl_spec)
+                    lbl_count = _count_files(lbl_dir, {".txt", ".json", ".xml"})
+                else:
+                    lbl_count = self._count_labels_in_split(split_name)
+            elif isinstance(split_info, (list, tuple)) and len(split_info) == 2:
+                # 兼容旧格式：列表/元组 [images_dir, labels_dir]
+                img_dir_spec, lbl_dir_spec = split_info
+                img_dir = self._resolve_dir(img_dir_spec)
+                lbl_dir = self._resolve_dir(lbl_dir_spec)
+                img_count = _count_files(img_dir, IMG_EXTS)
+                lbl_count = _count_files(lbl_dir, {".txt", ".json", ".xml"})
             else:
-                # 兼容旧格式，直接计算文件夹中的文件数
+                # 兼容旧格式：按默认结构统计
                 img_count = self._count_images_in_split(split_name)
                 lbl_count = self._count_labels_in_split(split_name)
 
@@ -213,18 +227,33 @@ class Dataset:
 
         return stats
 
+    def _resolve_dir(self, spec: str | Path) -> Path:
+        """根据元数据中的相对/绝对目录描述解析为目录路径"""
+        p = Path(spec)
+        if not p.is_absolute():
+            p = self.path / p
+        return p
+
     def _count_images_in_split(self, split_name: str) -> int:
-        """统计特定分割中的图像数量"""
-        split_dir = self.path / split_name / "images"
-        if not split_dir.exists():
-            split_dir = self.path / split_name
+        """统计特定分割中的图像数量（兼容旧格式与基于 splits 的目录映射）"""
+        info = self.splits.get(split_name)
+        if isinstance(info, dict) and isinstance(info.get("images"), str):
+            split_dir = self._resolve_dir(info["images"])
+        else:
+            split_dir = self.path / split_name / "images"
+            if not split_dir.exists():
+                split_dir = self.path / split_name
         return _count_files(split_dir, IMG_EXTS)
 
     def _count_labels_in_split(self, split_name: str) -> int:
-        """统计特定分割中的标注数量"""
-        split_dir = self.path / split_name / "labels"
-        if not split_dir.exists():
-            split_dir = self.path / split_name
+        """统计特定分割中的标注数量（兼容旧格式与基于 splits 的目录映射）"""
+        info = self.splits.get(split_name)
+        if isinstance(info, dict) and isinstance(info.get("labels"), str):
+            split_dir = self._resolve_dir(info["labels"])
+        else:
+            split_dir = self.path / split_name / "labels"
+            if not split_dir.exists():
+                split_dir = self.path / split_name
         return _count_files(split_dir, {".txt", ".json", ".xml"})
 
     def rename(self, new_name: str) -> tuple[bool, str]:
@@ -471,8 +500,8 @@ class DatasetManager:
             # 创建数据集实例并保存元数据
             dataset = Dataset(folder_name, dest_dir)
 
-            # 清理splits中的Path对象，转换为字符串
-            cleaned_splits = self._clean_splits_for_yaml(splits)
+            # 清理splits，统一为 screw_long_obb.yml 风格且使用相对路径
+            cleaned_splits = self._clean_splits_for_yaml(splits, base_dir=dest_dir)
 
             metadata = {
                 "name": folder_name,
@@ -512,34 +541,61 @@ class DatasetManager:
             return "r:xz"
         return None
 
-    def _clean_splits_for_yaml(self, splits: dict) -> dict:
-        """清理splits数据，将Path对象转换为字符串以便YAML序列化"""
+    def _clean_splits_for_yaml(
+        self, splits: dict, base_dir: Optional[Path] = None
+    ) -> dict:
+        """将内部 splits 映射清理为 screw_long_obb.yml 风格：
+        { split: { images: <relative_dir>, labels: <relative_dir> } }
+
+        - 接受 tuple/list/dict 三种输入形式
+        - 输出一律为相对 base_dir 的相对路径（若可相对）
+        """
         if not splits:
             return {}
 
-        cleaned = {}
+        def rel_str(p: Path | str) -> str:
+            try:
+                path = Path(p)
+            except Exception:
+                return str(p)
+            # 若提供了 base_dir，尽量转为相对
+            if base_dir is not None:
+                try:
+                    # Windows 兼容：as_posix 统一分隔符
+                    return path.relative_to(base_dir).as_posix()
+                except Exception:
+                    return path.as_posix()
+            return path.as_posix()
+
+        cleaned: dict = {}
         for split_name, split_data in splits.items():
+            img_dir_s: str
+            lbl_dir_s: str
             if isinstance(split_data, dict):
-                # 递归清理字典中的Path对象
-                cleaned_split = {}
-                for key, value in split_data.items():
-                    if isinstance(value, Path):
-                        cleaned_split[key] = str(value)
-                    elif isinstance(value, (list, tuple)):
-                        # 处理列表中的Path对象
-                        cleaned_split[key] = [
-                            str(item) if isinstance(item, Path) else item
-                            for item in value
-                        ]
+                img_v = split_data.get("images")
+                lbl_v = split_data.get("labels")
+                if img_v is None or lbl_v is None:
+                    # 兜底：尝试从任意值推断（不严格）
+                    items = list(split_data.values())
+                    if len(items) >= 2:
+                        img_dir_s = rel_str(items[0])
+                        lbl_dir_s = rel_str(items[1])
                     else:
-                        cleaned_split[key] = value
-                cleaned[split_name] = cleaned_split
-            else:
-                # 如果不是字典，直接处理
-                if isinstance(split_data, Path):
-                    cleaned[split_name] = str(split_data)
+                        # 回退默认结构
+                        img_dir_s = f"{split_name}/images"
+                        lbl_dir_s = f"{split_name}/labels"
                 else:
-                    cleaned[split_name] = split_data
+                    img_dir_s = rel_str(img_v)
+                    lbl_dir_s = rel_str(lbl_v)
+            elif isinstance(split_data, (list, tuple)) and len(split_data) == 2:
+                img_dir_s = rel_str(split_data[0])
+                lbl_dir_s = rel_str(split_data[1])
+            else:
+                # 无法识别，按默认结构
+                img_dir_s = f"{split_name}/images"
+                lbl_dir_s = f"{split_name}/labels"
+
+            cleaned[split_name] = {"images": img_dir_s, "labels": lbl_dir_s}
 
         return cleaned
 

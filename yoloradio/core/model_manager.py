@@ -13,6 +13,7 @@ import yaml
 
 from .paths import MODELS_PRETRAINED_DIR, MODELS_TRAINED_DIR
 from .task_types import TASK_MAP as MODEL_TASK_MAP
+from .task_types import get_task_display
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +151,9 @@ class Model:
     @property
     def task_display(self) -> str:
         """获取任务类型显示名称"""
-        return self.metadata.get("task_display", "目标检测")
+        meta = self.metadata
+        # 优先使用元数据中的显示名称；若缺失则根据 task 代码映射
+        return meta.get("task_display") or get_task_display(meta.get("task", "detect"))
 
     @property
     def version(self) -> str:
@@ -240,9 +243,11 @@ class Model:
             info_lines.append("## 📋 元数据信息")
 
             # 基本信息
-            if "task" in metadata:
-                task_display = metadata.get("task_display", metadata["task"])
-                info_lines.append(f"**任务类型:** {task_display}")
+            if "task" in metadata or "task_display" in metadata:
+                task_display_str = metadata.get("task_display") or get_task_display(
+                    metadata.get("task", "detect")
+                )
+                info_lines.append(f"**任务类型:** {task_display_str}")
 
             if "version" in metadata:
                 info_lines.append(f"**YOLO版本:** {metadata['version']}")

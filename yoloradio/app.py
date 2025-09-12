@@ -11,6 +11,7 @@ from yoloradio.ui import (
     create_logs_tab,
     create_models_tab,
     create_quick_tab,
+    create_test_tab,
     create_train_tab,
     create_val_tab,
 )
@@ -43,6 +44,9 @@ def create_app() -> gr.Blocks:
 
     with app.route(name="导出", path="export"):
         create_export_tab()
+
+    with app.route(name="测试", path="test"):
+        create_test_tab()
 
     with app.route(name="快速应用", path="quick"):
         create_quick_tab()
