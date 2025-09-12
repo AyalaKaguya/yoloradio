@@ -155,8 +155,8 @@ def create_train_tab() -> None:
                 with gr.Column(scale=2):
                     gr.Markdown("### 任务列表")
                     task_list = gr.Dataframe(
-                        headers=["ID", "名称", "状态", "优先级", "进度", "创建时间"],
-                        datatype=["str", "str", "str", "str", "str", "str"],
+                        headers=["ID", "名称", "状态", "优先级", "创建时间"],
+                        datatype=["str", "str", "str", "str", "str"],
                         label="训练任务",
                         interactive=False,
                         wrap=True,
@@ -184,14 +184,8 @@ def create_train_tab() -> None:
                         f"**设备信息**: {train_manager.get_device_info()}"
                     )
 
-                    # 实时指标面板
-                    gr.Markdown("### 实时指标")
-                    with gr.Row():
-                        loss_display = gr.Number(label="当前Loss", interactive=False)
-                        acc_display = gr.Number(label="准确率", interactive=False)
-                        progress_display = gr.Number(label="进度%", interactive=False)
-
-                        clear_logs_btn = gr.Button("清空日志", variant="secondary")
+                    # 日志操作
+                    clear_logs_btn = gr.Button("清空日志", variant="secondary")
 
                 # 右侧：实时日志
                 with gr.Column(scale=2):
@@ -297,7 +291,6 @@ def create_train_tab() -> None:
                     task.name,
                     task.status.value,
                     task.priority.name,
-                    f"{task.progress.progress_percent:.1f}%",
                     task.created_at.strftime("%H:%M:%S"),
                 ]
             )
@@ -472,26 +465,12 @@ def create_train_tab() -> None:
         queue_status_text = _refresh_queue_status()
         task_list_data = _refresh_task_list()
 
-        # 提取当前任务的指标
-        current_task = train_manager.get_current_task()
-        if current_task and current_task.status.value == "running":
-            loss = current_task.progress.loss
-            acc = current_task.progress.accuracy
-            progress = current_task.progress.progress_percent
-        else:
-            loss = 0.0
-            acc = 0.0
-            progress = 0.0
-
         return (
             status_text,
             info_text,
             log_text,
             queue_status_text,
             task_list_data,
-            loss,
-            acc,
-            progress,
         )
 
     # 使用定时器更新状态
@@ -504,8 +483,5 @@ def create_train_tab() -> None:
             log_output,
             queue_status,
             task_list,
-            loss_display,
-            acc_display,
-            progress_display,
         ],
     )

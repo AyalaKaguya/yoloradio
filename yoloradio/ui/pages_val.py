@@ -232,17 +232,14 @@ def create_val_tab() -> None:
             if validation_tasks:
                 # 获取最近的验证任务
                 current_task = validation_tasks[-1]
-                progress = current_task.progress
 
                 # 格式化状态信息
-                status_text = f"状态: {current_task.status.value} - {progress.progress_percent:.1f}%"
+                status_text = f"状态: {current_task.status.value}"
 
                 info_text = f"""**验证信息**:
 - **任务ID**: {current_task.id}
 - **任务名称**: {current_task.name}
 - **状态**: {current_task.status.value}
-- **进度**: {progress.progress_percent:.1f}%
-- **准确率**: {progress.accuracy:.4f}
 - **创建时间**: {current_task.created_at.strftime('%H:%M:%S')}"""
 
                 if current_task.started_at:

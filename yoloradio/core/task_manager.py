@@ -92,10 +92,6 @@ class TaskProgress:
 
     current_epoch: int = 0
     total_epochs: int = 0
-    loss: float = 0.0
-    accuracy: float = 0.0
-    lr: float = 0.0
-    eta: str = ""
 
     @property
     def progress_percent(self) -> float:
@@ -142,43 +138,7 @@ class Task:
         return (end_time - self.started_at).total_seconds()
 
 
-class OutputParser:
-    """训练输出解析器"""
-
-    def __init__(self):
-        self.patterns = {
-            "epoch": r"Epoch\s+(\d+)/(\d+)",
-            "loss": r"loss:\s*([0-9.]+)",
-            "accuracy": r"acc:\s*([0-9.]+)",
-            "lr": r"lr:\s*([0-9.e-]+)",
-            "eta": r"ETA:\s*([0-9:]+)",
-        }
-
-    def parse_line(self, line: str) -> Dict[str, Any]:
-        """解析单行输出"""
-        import re
-
-        result = {}
-
-        # 解析各种指标
-        for key, pattern in self.patterns.items():
-            match = re.search(pattern, line, re.IGNORECASE)
-            if match:
-                if key == "epoch":
-                    result["current_epoch"] = int(match.group(1))
-                    result["total_epochs"] = int(match.group(2))
-                elif key in ["loss", "accuracy", "lr"]:
-                    result[key] = float(match.group(1))
-                elif key == "eta":
-                    result[key] = match.group(1)
-
-        return result
-
-    def update_progress(self, progress: TaskProgress, parsed_data: Dict[str, Any]):
-        """更新进度信息"""
-        for key, value in parsed_data.items():
-            if hasattr(progress, key):
-                setattr(progress, key, value)
+# 移除输出解析器以简化过程指标跟踪
 
 
 class TaskManager:
@@ -190,7 +150,7 @@ class TaskManager:
         self.current_task: Optional[Task] = None
         self.is_running = False
         self.worker_thread: Optional[threading.Thread] = None
-        self.output_parser = OutputParser()
+        # 不再解析训练输出的过程指标
 
         # 回调函数
         self.status_callbacks: List[Callable] = []
@@ -390,7 +350,7 @@ class TaskManager:
         ):
             task.progress.total_epochs = task.config.epochs
         elif task.task_type == TaskType.VALIDATION:
-            task.progress.total_epochs = 1  # 验证任务通常只需要一轮
+            task.progress.total_epochs = 1
 
         logger.info(f"开始执行任务: {task.name} (ID: {task.id})")
         self._notify_status_change(task)
@@ -485,14 +445,6 @@ class TaskManager:
                     # 只添加新的日志行
                     new_logs = training_state.log_lines[len(task.logs) :]
                     task.logs.extend(new_logs)
-
-                    # 解析最新的日志行以提取指标
-                    for log_line in new_logs:
-                        parsed_data = self.output_parser.parse_line(log_line)
-                        if parsed_data:
-                            self.output_parser.update_progress(
-                                task.progress, parsed_data
-                            )
 
                 # 通知进度更新
                 self._notify_progress_update(task)
@@ -603,9 +555,7 @@ class TaskManager:
             if validation_state.completed_successfully:
                 task.logs.append("验证成功完成")
 
-                # 更新准确率信息
-                if validation_state.results and "mAP50" in validation_state.results:
-                    task.progress.accuracy = validation_state.results["mAP50"]
+                # 保留结果到日志，不再回填过程指标
 
                 # 记录验证结果
                 if validation_state.results:
@@ -629,6 +579,20 @@ class TaskManager:
     def _stop_current_task(self):
         """停止当前任务"""
         if self.current_task:
+            # 针对不同任务类型执行真实停止逻辑
+            try:
+                if self.current_task.task_type == TaskType.TRAINING:
+                    from .training_manager import stop_training as _stop_train
+
+                    _stop_train()
+                elif self.current_task.task_type == TaskType.VALIDATION:
+                    from .validation_manager import stop_validation as _stop_val
+                    from .validation_manager import validation_state
+
+                    _stop_val()
+            except Exception as _e:
+                logger.error(f"停止底层任务进程失败: {_e}")
+
             self.current_task.status = TaskStatus.CANCELLED
             self.current_task.completed_at = datetime.now()
 

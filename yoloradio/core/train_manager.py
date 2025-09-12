@@ -59,7 +59,7 @@ class TrainManager:
     def _format_task_status(self, task: Task) -> Tuple[str, str, str]:
         """格式化任务状态为UI显示格式"""
         if task.status == TaskStatus.RUNNING:
-            status_text = f"状态: 训练中 - Epoch {task.progress.current_epoch}/{task.progress.total_epochs} ({task.progress.progress_percent:.1f}%)"
+            status_text = f"状态: 训练中"
         elif task.status == TaskStatus.QUEUED:
             status_text = f"状态: 排队中 (优先级: {task.priority.name})"
         elif task.status == TaskStatus.COMPLETED:
@@ -75,9 +75,6 @@ class TrainManager:
         if task.status in [TaskStatus.RUNNING, TaskStatus.COMPLETED]:
             info_text = f"""**任务ID**: {task.id}
 **名称**: {task.name}
-**进度**: {task.progress.current_epoch}/{task.progress.total_epochs} ({task.progress.progress_percent:.1f}%)
-**Loss**: {task.progress.loss:.4f}
-**准确率**: {task.progress.accuracy:.4f}
 **日志行数**: {len(task.logs)}"""
         else:
             info_text = f"""**任务ID**: {task.id}
